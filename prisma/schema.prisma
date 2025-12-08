@@ -1,0 +1,553 @@
+// DippChain Prisma Schema
+// MySQL Database for creative rights, protection, and monetization
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== USER & AUTH ====================
+
+model User {
+  id              String    @id @default(uuid())
+  email           String    @unique
+  walletAddress   String?   @unique
+  displayName     String?
+  avatar          String?
+  bio             String?   @db.Text
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  assets          Asset[]
+  licenses        License[]
+  fractions       FractionHolder[]
+  proposals       Proposal[]
+  votes           Vote[]
+  sentinelAlerts  SentinelAlert[]
+  transactions    Transaction[]
+  revenues        Revenue[]
+
+  @@map("users")
+}
+
+// ==================== ASSETS ====================
+
+model Asset {
+  id                  String    @id @default(uuid())
+  userId              String
+  title               String
+  description         String?   @db.Text
+  assetType           AssetType
+  originalFileName    String
+  fileSize            Int
+  mimeType            String
+  
+  // Storage
+  pinataCid           String?
+  pinataUrl           String?
+  thumbnailCid        String?
+  thumbnailUrl        String?
+  
+  // Watermark & Metadata
+  watermarkId         String?   @unique
+  metadataHash        String?
+  contentHash         String?
+  
+  // On-chain Registration
+  storyProtocolId     String?
+  storyProtocolTxHash String?
+  dippchainTokenId    String?
+  dippchainTxHash     String?
+  registeredOnChain   Boolean   @default(false)
+  
+  // Status
+  status              AssetStatus @default(DRAFT)
+  visibility          Visibility  @default(PRIVATE)
+  
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relations
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  licenses            License[]
+  fractionalization   Fractionalization?
+  sentinelScans       SentinelScan[]
+  sentinelAlerts      SentinelAlert[]
+  revenues            Revenue[]
+
+  @@index([userId])
+  @@index([watermarkId])
+  @@index([storyProtocolId])
+  @@map("assets")
+}
+
+enum AssetType {
+  IMAGE
+  VIDEO
+  AUDIO
+  TEXT
+  DOCUMENT
+}
+
+enum AssetStatus {
+  DRAFT
+  PROCESSING
+  REGISTERED
+  ACTIVE
+  ARCHIVED
+}
+
+enum Visibility {
+  PRIVATE
+  PUBLIC
+  LICENSED
+}
+
+// ==================== LICENSING ====================
+
+model License {
+  id                  String        @id @default(uuid())
+  assetId             String
+  creatorId           String
+  licenseeId          String?
+  
+  // License Details
+  licenseType         LicenseType
+  templateId          String?
+  terms               Json?
+  price               Decimal?      @db.Decimal(18, 8)
+  currency            String        @default("ETH")
+  
+  // Duration
+  startDate           DateTime?
+  endDate             DateTime?
+  isExclusive         Boolean       @default(false)
+  
+  // On-chain
+  onChainLicenseId    String?
+  txHash              String?
+  
+  // Status
+  status              LicenseStatus @default(PENDING)
+  
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  // Relations
+  asset               Asset         @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  creator             User          @relation(fields: [creatorId], references: [id])
+  template            LicenseTemplate? @relation(fields: [templateId], references: [id])
+
+  @@index([assetId])
+  @@index([creatorId])
+  @@map("licenses")
+}
+
+model LicenseTemplate {
+  id          String    @id @default(uuid())
+  name        String
+  description String?   @db.Text
+  terms       Json
+  isDefault   Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+
+  licenses    License[]
+
+  @@map("license_templates")
+}
+
+enum LicenseType {
+  PERSONAL
+  COMMERCIAL
+  EXCLUSIVE
+  NON_EXCLUSIVE
+  ROYALTY_FREE
+  RIGHTS_MANAGED
+}
+
+enum LicenseStatus {
+  PENDING
+  ACTIVE
+  EXPIRED
+  REVOKED
+}
+
+// ==================== FRACTIONALIZATION ====================
+
+model Fractionalization {
+  id                  String    @id @default(uuid())
+  assetId             String    @unique
+  
+  // Token Details
+  tokenName           String
+  tokenSymbol         String
+  totalSupply         Decimal   @db.Decimal(36, 18)
+  availableSupply     Decimal   @db.Decimal(36, 18)
+  pricePerToken       Decimal   @db.Decimal(18, 8)
+  currency            String    @default("ETH")
+  
+  // On-chain
+  tokenAddress        String?
+  deployTxHash        String?
+  
+  // Royalty Settings
+  royaltyPercentage   Decimal   @db.Decimal(5, 2) @default(10.00)
+  
+  // Status
+  status              FractionStatus @default(PENDING)
+  
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relations
+  asset               Asset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  holders             FractionHolder[]
+  listings            MarketplaceListing[]
+  revenues            Revenue[]
+
+  @@map("fractionalizations")
+}
+
+model FractionHolder {
+  id                  String    @id @default(uuid())
+  fractionalizationId String
+  userId              String
+  
+  amount              Decimal   @db.Decimal(36, 18)
+  percentageOwned     Decimal   @db.Decimal(5, 4)
+  
+  acquiredAt          DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relations
+  fractionalization   Fractionalization @relation(fields: [fractionalizationId], references: [id], onDelete: Cascade)
+  user                User      @relation(fields: [userId], references: [id])
+
+  @@unique([fractionalizationId, userId])
+  @@map("fraction_holders")
+}
+
+enum FractionStatus {
+  PENDING
+  DEPLOYED
+  TRADING
+  PAUSED
+  CLOSED
+}
+
+// ==================== MARKETPLACE ====================
+
+model MarketplaceListing {
+  id                  String    @id @default(uuid())
+  fractionalizationId String
+  sellerId            String
+  
+  // Listing Details
+  listingType         ListingType
+  amount              Decimal   @db.Decimal(36, 18)
+  pricePerToken       Decimal   @db.Decimal(18, 8)
+  totalPrice          Decimal   @db.Decimal(18, 8)
+  currency            String    @default("ETH")
+  
+  // Status
+  status              ListingStatus @default(ACTIVE)
+  
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  expiresAt           DateTime?
+
+  // Relations
+  fractionalization   Fractionalization @relation(fields: [fractionalizationId], references: [id])
+  orders              Order[]
+
+  @@index([fractionalizationId])
+  @@index([sellerId])
+  @@map("marketplace_listings")
+}
+
+model Order {
+  id          String      @id @default(uuid())
+  listingId   String
+  buyerId     String
+  
+  amount      Decimal     @db.Decimal(36, 18)
+  totalPaid   Decimal     @db.Decimal(18, 8)
+  txHash      String?
+  
+  status      OrderStatus @default(PENDING)
+  
+  createdAt   DateTime    @default(now())
+  completedAt DateTime?
+
+  // Relations
+  listing     MarketplaceListing @relation(fields: [listingId], references: [id])
+
+  @@index([listingId])
+  @@index([buyerId])
+  @@map("orders")
+}
+
+enum ListingType {
+  PRIMARY
+  SECONDARY
+}
+
+enum ListingStatus {
+  ACTIVE
+  SOLD
+  CANCELLED
+  EXPIRED
+}
+
+enum OrderStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// ==================== DAO GOVERNANCE ====================
+
+model Proposal {
+  id              String    @id @default(uuid())
+  creatorId       String
+  
+  title           String
+  description     String    @db.Text
+  documentCid     String?
+  documentUrl     String?
+  
+  // Voting
+  votingStart     DateTime
+  votingEnd       DateTime
+  quorumRequired  Decimal   @db.Decimal(5, 2)
+  
+  // Results
+  votesFor        Decimal   @db.Decimal(36, 18) @default(0)
+  votesAgainst    Decimal   @db.Decimal(36, 18) @default(0)
+  votesAbstain    Decimal   @db.Decimal(36, 18) @default(0)
+  
+  // On-chain
+  onChainProposalId String?
+  executionTxHash   String?
+  
+  // Status
+  status          ProposalStatus @default(PENDING)
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  creator         User      @relation(fields: [creatorId], references: [id])
+  votes           Vote[]
+
+  @@index([creatorId])
+  @@map("proposals")
+}
+
+model Vote {
+  id          String    @id @default(uuid())
+  proposalId  String
+  voterId     String
+  
+  voteType    VoteType
+  weight      Decimal   @db.Decimal(36, 18)
+  txHash      String?
+  
+  createdAt   DateTime  @default(now())
+
+  // Relations
+  proposal    Proposal  @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  voter       User      @relation(fields: [voterId], references: [id])
+
+  @@unique([proposalId, voterId])
+  @@map("votes")
+}
+
+enum ProposalStatus {
+  PENDING
+  ACTIVE
+  PASSED
+  REJECTED
+  EXECUTED
+  CANCELLED
+}
+
+enum VoteType {
+  FOR
+  AGAINST
+  ABSTAIN
+}
+
+// ==================== SENTINEL DETECTION ====================
+
+model SentinelScan {
+  id          String    @id @default(uuid())
+  assetId     String
+  
+  platform    String
+  searchQuery String?
+  
+  matchesFound Int      @default(0)
+  status      ScanStatus @default(PENDING)
+  
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  // Relations
+  asset       Asset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  alerts      SentinelAlert[]
+
+  @@index([assetId])
+  @@map("sentinel_scans")
+}
+
+model SentinelAlert {
+  id              String    @id @default(uuid())
+  assetId         String
+  userId          String
+  scanId          String?
+  
+  // Detection Details
+  platform        String
+  sourceUrl       String    @db.Text
+  screenshotCid   String?
+  screenshotUrl   String?
+  
+  // Analysis
+  similarityScore Decimal   @db.Decimal(5, 2)
+  watermarkFound  Boolean   @default(false)
+  metadataMatch   Boolean   @default(false)
+  
+  // Evidence Package
+  evidenceCid     String?
+  evidenceUrl     String?
+  evidenceData    Json?
+  
+  // Status & Action
+  severity        AlertSeverity @default(MEDIUM)
+  status          AlertStatus   @default(NEW)
+  actionTaken     String?       @db.Text
+  
+  detectedAt      DateTime  @default(now())
+  resolvedAt      DateTime?
+
+  // Relations
+  asset           Asset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  user            User      @relation(fields: [userId], references: [id])
+  scan            SentinelScan? @relation(fields: [scanId], references: [id])
+
+  @@index([assetId])
+  @@index([userId])
+  @@map("sentinel_alerts")
+}
+
+enum ScanStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum AlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AlertStatus {
+  NEW
+  REVIEWING
+  CONFIRMED
+  FALSE_POSITIVE
+  TAKEDOWN_SENT
+  RESOLVED
+}
+
+// ==================== REVENUE & TRANSACTIONS ====================
+
+model Revenue {
+  id                  String    @id @default(uuid())
+  userId              String
+  assetId             String?
+  fractionalizationId String?
+  
+  // Revenue Details
+  amount              Decimal   @db.Decimal(18, 8)
+  currency            String    @default("ETH")
+  source              RevenueSource
+  
+  // Status
+  status              RevenueStatus @default(PENDING)
+  claimedAt           DateTime?
+  claimTxHash         String?
+  
+  createdAt           DateTime  @default(now())
+
+  // Relations
+  user                User      @relation(fields: [userId], references: [id])
+  asset               Asset?    @relation(fields: [assetId], references: [id])
+  fractionalization   Fractionalization? @relation(fields: [fractionalizationId], references: [id])
+
+  @@index([userId])
+  @@map("revenues")
+}
+
+model Transaction {
+  id          String    @id @default(uuid())
+  userId      String
+  
+  type        TransactionType
+  amount      Decimal   @db.Decimal(18, 8)
+  currency    String    @default("ETH")
+  
+  txHash      String?
+  status      TxStatus  @default(PENDING)
+  
+  metadata    Json?
+  
+  createdAt   DateTime  @default(now())
+  confirmedAt DateTime?
+
+  // Relations
+  user        User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([txHash])
+  @@map("transactions")
+}
+
+enum RevenueSource {
+  LICENSE_SALE
+  FRACTION_SALE
+  ROYALTY
+  SECONDARY_SALE
+}
+
+enum RevenueStatus {
+  PENDING
+  CLAIMABLE
+  CLAIMED
+  FAILED
+}
+
+enum TransactionType {
+  ASSET_REGISTRATION
+  LICENSE_PURCHASE
+  FRACTION_PURCHASE
+  FRACTION_SALE
+  ROYALTY_CLAIM
+  WITHDRAWAL
+}
+
+enum TxStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+}
