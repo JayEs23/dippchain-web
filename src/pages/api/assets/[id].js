@@ -1,0 +1,146 @@
+// API Route: Get, Update, Delete Single Asset
+import prisma from '@/lib/prisma';
+
+export default async function handler(req, res) {
+  const { id } = req.query;
+
+  if (!id) {
+    return res.status(400).json({ error: 'Asset ID is required' });
+  }
+
+  switch (req.method) {
+    case 'GET':
+      return getAsset(id, res);
+    case 'PUT':
+    case 'PATCH':
+      return updateAsset(id, req.body, res);
+    case 'DELETE':
+      return deleteAsset(id, res);
+    default:
+      return res.status(405).json({ error: 'Method not allowed' });
+  }
+}
+
+async function getAsset(id, res) {
+  try {
+    const asset = await prisma.asset.findUnique({
+      where: { id },
+      include: {
+        user: {
+          select: { id: true, displayName: true, walletAddress: true },
+        },
+        licenses: true,
+        fractionalization: {
+          include: {
+            holders: {
+              select: { userId: true, amount: true, percentageOwned: true },
+            },
+          },
+        },
+        sentinelScans: {
+          orderBy: { startedAt: 'desc' },
+          take: 5,
+        },
+        sentinelAlerts: {
+          orderBy: { detectedAt: 'desc' },
+          take: 10,
+        },
+      },
+    });
+
+    if (!asset) {
+      return res.status(404).json({ error: 'Asset not found' });
+    }
+
+    return res.status(200).json({ success: true, asset });
+  } catch (error) {
+    console.error('Get asset error:', error);
+    return res.status(500).json({ error: 'Failed to fetch asset', details: error.message });
+  }
+}
+
+async function updateAsset(id, data, res) {
+  try {
+    const {
+      title,
+      description,
+      visibility,
+      status,
+      dippchainTokenId,
+      dippchainTxHash,
+      storyProtocolId,
+      storyProtocolTxHash,
+      registeredOnChain,
+    } = data;
+
+    const updateData = {};
+    if (title !== undefined) updateData.title = title;
+    if (description !== undefined) updateData.description = description;
+    if (visibility !== undefined) updateData.visibility = visibility;
+    if (status !== undefined) updateData.status = status;
+    if (dippchainTokenId !== undefined) updateData.dippchainTokenId = String(dippchainTokenId);
+    if (dippchainTxHash !== undefined) updateData.dippchainTxHash = dippchainTxHash;
+    if (storyProtocolId !== undefined) updateData.storyProtocolId = storyProtocolId;
+    if (storyProtocolTxHash !== undefined) updateData.storyProtocolTxHash = storyProtocolTxHash;
+    if (registeredOnChain !== undefined) updateData.registeredOnChain = registeredOnChain;
+
+    const asset = await prisma.asset.update({
+      where: { id },
+      data: updateData,
+    });
+
+    return res.status(200).json({ success: true, asset });
+  } catch (error) {
+    console.error('Update asset error:', error);
+    
+    if (error.code === 'P2025') {
+      return res.status(404).json({ error: 'Asset not found' });
+    }
+    
+    return res.status(500).json({ error: 'Failed to update asset', details: error.message });
+  }
+}
+
+async function deleteAsset(id, res) {
+  try {
+    // Check if asset can be deleted (not fractionalized, etc.)
+    const asset = await prisma.asset.findUnique({
+      where: { id },
+      include: {
+        fractionalization: true,
+        licenses: { where: { status: 'ACTIVE' } },
+      },
+    });
+
+    if (!asset) {
+      return res.status(404).json({ error: 'Asset not found' });
+    }
+
+    if (asset.fractionalization) {
+      return res.status(400).json({ 
+        error: 'Cannot delete fractionalized asset' 
+      });
+    }
+
+    if (asset.licenses.length > 0) {
+      return res.status(400).json({ 
+        error: 'Cannot delete asset with active licenses' 
+      });
+    }
+
+    // Soft delete - archive the asset
+    await prisma.asset.update({
+      where: { id },
+      data: { status: 'ARCHIVED' },
+    });
+
+    return res.status(200).json({ 
+      success: true, 
+      message: 'Asset archived successfully' 
+    });
+  } catch (error) {
+    console.error('Delete asset error:', error);
+    return res.status(500).json({ error: 'Failed to delete asset', details: error.message });
+  }
+}
+

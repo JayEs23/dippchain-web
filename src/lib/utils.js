@@ -31,7 +31,7 @@ export const formatRelativeTime = (date) => {
 };
 
 // Format currency
-export const formatCurrency = (amount, currency = 'ETH') => {
+export const formatCurrency = (amount, currency = 'IP') => {
   if (currency === 'USD') {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',

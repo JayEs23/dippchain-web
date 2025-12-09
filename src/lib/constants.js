@@ -54,18 +54,21 @@ export const MAX_FILE_SIZES = {
   DOCUMENT: 50 * 1024 * 1024,   // 50MB
 };
 
-// Chain Configuration
+// Chain Configuration - Story Aeneid Testnet
 export const CHAIN_CONFIG = {
   chainId: parseInt(process.env.NEXT_PUBLIC_CHAIN_ID || '1315'),
-  chainName: 'Story Protocol Odyssey',
-  rpcUrl: process.env.NEXT_PUBLIC_RPC_URL || 'https://rpc.odyssey.storyrpc.io',
-  blockExplorer: 'https://odyssey.storyscan.xyz',
+  chainName: 'Story Aeneid Testnet',
+  rpcUrl: process.env.NEXT_PUBLIC_RPC_URL || 'https://aeneid.storyrpc.io',
+  blockExplorer: 'https://aeneid.storyscan.io',
   nativeCurrency: {
     name: 'IP',
     symbol: 'IP',
     decimals: 18,
   },
 };
+
+// Default currency for transactions on Story Protocol
+export const DEFAULT_CURRENCY = 'IP';
 
 // Contract Addresses
 export const CONTRACTS = {
@@ -89,15 +92,16 @@ export const NAV_LINKS = [
   { name: 'Revenue', href: '/revenue', icon: 'Wallet' },
 ];
 
-// Pricing Plans
+// Pricing Plans (in IP tokens)
 export const PRICING_PLANS = [
   {
     name: 'Creator',
     price: 0,
+    currency: 'IP',
     period: 'forever',
     description: 'Perfect for individual creators getting started',
     features: [
-      'Up to 10 asset registrations',
+      'Up to 10 IP asset registrations',
       'Basic watermarking',
       'Community support',
       'Standard Sentinel scans (weekly)',
@@ -107,29 +111,31 @@ export const PRICING_PLANS = [
   },
   {
     name: 'Professional',
-    price: 29,
+    price: 50,
+    currency: 'IP',
     period: 'month',
     description: 'For serious creators building their brand',
     features: [
-      'Unlimited asset registrations',
+      'Unlimited IP registrations',
       'Advanced watermarking & metadata',
       'Priority support',
       'Daily Sentinel scans',
-      'Licensing engine',
-      'Revenue analytics',
+      'PIL licensing engine',
+      'Royalty analytics',
     ],
     cta: 'Start Pro Trial',
     highlighted: true,
   },
   {
     name: 'Enterprise',
-    price: 99,
+    price: 200,
+    currency: 'IP',
     period: 'month',
     description: 'For teams and agencies at scale',
     features: [
       'Everything in Professional',
       'Real-time Sentinel monitoring',
-      'API access',
+      'Story Protocol API access',
       'Custom integrations',
       'Dedicated account manager',
       'Legal support & takedowns',

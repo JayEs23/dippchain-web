@@ -1,54 +1,40 @@
-import { PinataSDK } from 'pinata';
+// Pinata IPFS Upload Library
+// Uses REST API for reliable server-side uploads
 
-let pinata = null;
+const PINATA_API_URL = 'https://api.pinata.cloud';
 
-export const getPinata = () => {
-  if (!pinata) {
-    pinata = new PinataSDK({
-      pinataJwt: process.env.PINATA_JWT,
-      pinataGateway: process.env.PINATA_GATEWAY,
-    });
-  }
-  return pinata;
-};
-
-// Upload file to Pinata
-export const uploadFileToPinata = async (file, metadata = {}) => {
-  const pinata = getPinata();
-  
-  try {
-    const result = await pinata.upload.file(file).addMetadata({
-      name: metadata.name || file.name,
-      keyValues: metadata.keyValues || {},
-    });
-    
-    return {
-      success: true,
-      cid: result.IpfsHash,
-      url: `https://${process.env.PINATA_GATEWAY}/ipfs/${result.IpfsHash}`,
-    };
-  } catch (error) {
-    console.error('Pinata upload error:', error);
-    return {
-      success: false,
-      error: error.message,
-    };
-  }
-};
-
-// Upload JSON to Pinata
+// Upload JSON to Pinata using REST API
 export const uploadJsonToPinata = async (json, name = 'metadata.json') => {
-  const pinata = getPinata();
-  
   try {
-    const result = await pinata.upload.json(json).addMetadata({
-      name,
+    const response = await fetch(`${PINATA_API_URL}/pinning/pinJSONToIPFS`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.PINATA_JWT}`,
+      },
+      body: JSON.stringify({
+        pinataContent: json,
+        pinataMetadata: {
+          name: name,
+        },
+        pinataOptions: {
+          cidVersion: 1,
+        },
+      }),
     });
-    
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Pinata JSON upload failed: ${errorText}`);
+    }
+
+    const result = await response.json();
+    const gateway = process.env.PINATA_GATEWAY || 'gateway.pinata.cloud';
+
     return {
       success: true,
       cid: result.IpfsHash,
-      url: `https://${process.env.PINATA_GATEWAY}/ipfs/${result.IpfsHash}`,
+      url: `https://${gateway}/ipfs/${result.IpfsHash}`,
     };
   } catch (error) {
     console.error('Pinata JSON upload error:', error);
@@ -59,21 +45,21 @@ export const uploadJsonToPinata = async (json, name = 'metadata.json') => {
   }
 };
 
-// Get file from Pinata gateway
-export const getFileFromPinata = async (cid) => {
-  try {
-    const url = `https://${process.env.PINATA_GATEWAY}/ipfs/${cid}`;
-    return {
-      success: true,
-      url,
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: error.message,
-    };
-  }
+// Get file URL from Pinata gateway
+export const getFileFromPinata = (cid) => {
+  const gateway = process.env.PINATA_GATEWAY || 'gateway.pinata.cloud';
+  return {
+    success: true,
+    url: `https://${gateway}/ipfs/${cid}`,
+  };
 };
 
-export default getPinata;
+// Legacy export for compatibility
+export const getPinata = () => {
+  console.warn('getPinata() is deprecated. Use REST API functions directly.');
+  return null;
+};
+
+const pinataUtils = { uploadJsonToPinata, getFileFromPinata };
+export default pinataUtils;
 
