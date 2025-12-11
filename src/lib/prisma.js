@@ -1,31 +1,19 @@
-import { PrismaClient } from '@prisma/client';
-import { PrismaMariaDb } from '@prisma/adapter-mariadb';
+import { PrismaPg } from "@prisma/adapter-pg";
+import { PrismaClient } from "./generated/prisma/client";
 
-const globalForPrisma = globalThis;
-
-function createPrismaClient() {
-  // Create MariaDB adapter for MySQL connection
-  const adapter = new PrismaMariaDb({
-    host: process.env.DATABASE_HOST || 'localhost',
-    port: parseInt(process.env.DATABASE_PORT || '3306'),
-    user: process.env.DATABASE_USER || 'root',
-    password: process.env.DATABASE_PASSWORD || '',
-    database: process.env.DATABASE_NAME || 'dippchain',
-    connectionLimit: 5,
-  });
-
-  return new PrismaClient({
-    adapter,
-    log: process.env.NODE_ENV === 'development'
-      ? ['error', 'warn']
-      : ['error'],
-  });
-}
-
-export const prisma = globalForPrisma.prisma ?? createPrismaClient();
-
-if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.prisma = prisma;
-}
+const connectionString = `${process.env.DATABASE_URL}`;
+const adapter = new PrismaPg({ connectionString });
+const prisma = new PrismaClient({ adapter });
 
 export default prisma;
+
+// Optionally apply migrations at startup
+// You can programmatically apply migrations here if needed
+// import { execSync } from 'child_process';
+// try {
+//   execSync('npx prisma migrate deploy', { stdio: 'inherit' });
+// } catch (e) {
+//   console.error('Migration failed:', e);
+// }
+
+export { prisma };
