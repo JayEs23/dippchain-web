@@ -1,7 +1,9 @@
 // API Route: Get royalty vault (Story Protocol royalty token) info for an IP asset
 import { ethers } from 'ethers';
 import prisma from '@/lib/prisma';
-import { createStoryClientServer } from '@/lib/storyProtocolClient';
+import { createStoryClientServer, getStoryRpcUrls } from '@/lib/storyProtocolClient';
+import { STORY_ROYALTY_TOKEN_TOTAL_TOKENS, weiToTokens } from '@/lib/storyRoyaltyTokens';
+import { saveStoryResponse } from '@/lib/storyProtocolLogger';
 
 // Minimal ERC20 ABI for metadata & balances
 const ERC20_ABI = [
@@ -43,25 +45,41 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Asset is not registered on Story Protocol yet' });
     }
 
-    // Story Protocol client (server wallet)
-    const spClient = await createStoryClientServer();
-
-    // Get vault (royalty token) address from Story Protocol
-    // SDK expects ipId as a string, not an object
-    console.log('Fetching vault address for IP:', asset.storyProtocolId);
-    let vaultAddress;
-    
-    try {
-      vaultAddress = await spClient.royalty.getRoyaltyVaultAddress(asset.storyProtocolId);
-      console.log('Vault address returned:', vaultAddress);
-    } catch (error) {
-      console.error('Error getting vault address:', error);
-      return res.status(500).json({
+    // Story Protocol client (server wallet) with RPC fallback
+    const rpcUrls = getStoryRpcUrls();
+    console.log('Fetching vault address for IP:', asset.storyProtocolId, 'RPCs:', rpcUrls);
+    let vaultAddress = null;
+    let lastErr = null;
+    for (let i = 0; i < rpcUrls.length; i += 1) {
+      const rpc = rpcUrls[i];
+      try {
+        const spClient = await createStoryClientServer(rpc);
+        vaultAddress = await spClient.royalty.getRoyaltyVaultAddress(asset.storyProtocolId);
+        if (vaultAddress && vaultAddress !== '0x0000000000000000000000000000000000000000') {
+          break;
+        }
+      } catch (e) {
+        lastErr = e;
+        console.warn(`Vault lookup failed on RPC ${rpc}:`, e?.message || e);
+      }
+    }
+    if (!vaultAddress || vaultAddress === '0x0000000000000000000000000000000000000000') {
+      const errorResponse = {
         success: false,
-        error: 'Failed to fetch vault address',
-        details: error.message || 'Unknown error occurred',
+        error: 'Royalty vault not yet deployed',
+        details: 'Vault deploys on first license token mint or first derivative registration. Mint one license token to trigger it.',
+        action: 'MINT_LICENSE_TOKEN',
         ipId: asset.storyProtocolId,
+        rpcTried: rpcUrls,
+        lastError: lastErr?.message,
+      };
+      // Save error response for debugging
+      await saveStoryResponse('get-vault-address-failed', errorResponse, {
+        assetId: asset.id,
+        ipId: asset.storyProtocolId,
+        rpcTried: rpcUrls,
       });
+      return res.status(404).json(errorResponse);
     }
     
     // If vaultAddress is not zero address, the vault is initialized
@@ -90,7 +108,7 @@ export default async function handler(req, res) {
       token.balanceOf(asset.storyProtocolId),
     ]);
 
-    return res.status(200).json({
+    const vaultData = {
       success: true,
       vaultAddress,
       token: {
@@ -98,14 +116,25 @@ export default async function handler(req, res) {
         symbol,
         decimals: Number(decimals),
         totalSupply: totalSupply.toString(),
-        ipAccountBalance: ipAccountBalance.toString(), // balance held by the IP Account (server-owned)
+        totalTokens: STORY_ROYALTY_TOKEN_TOTAL_TOKENS,
+        ipAccountBalance: ipAccountBalance.toString(),
+        ipAccountTokens: weiToTokens(ipAccountBalance),
       },
       asset: {
         id: asset.id,
         title: asset.title,
         storyProtocolId: asset.storyProtocolId,
       },
+    };
+
+    // Save vault info response for debugging
+    await saveStoryResponse('get-vault-info', vaultData, {
+      assetId: asset.id,
+      ipId: asset.storyProtocolId,
+      vaultAddress,
     });
+
+    return res.status(200).json(vaultData);
   } catch (error) {
     console.error('Vault lookup error:', error);
     return res.status(500).json({

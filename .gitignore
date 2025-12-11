@@ -44,3 +44,6 @@ next-env.d.ts
 /contracts
 
 /story-protocol-boilerplate
+
+# Story Protocol debug logs
+/.story-protocol-debug

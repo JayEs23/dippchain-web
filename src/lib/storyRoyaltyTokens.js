@@ -1,3 +1,22 @@
+// Story Protocol Royalty Token constants and helpers
+// Each IP has exactly 100 Royalty Tokens with 6 decimals (100 * 10^6 base units).
+
+export const STORY_ROYALTY_TOKEN_TOTAL_TOKENS = 100;
+export const STORY_ROYALTY_TOKEN_DECIMALS = 6;
+export const STORY_ROYALTY_TOKEN_TOTAL_SUPPLY = STORY_ROYALTY_TOKEN_TOTAL_TOKENS * 10 ** STORY_ROYALTY_TOKEN_DECIMALS; // 100_000_000
+
+export const tokensToWei = (tokens) => {
+  return BigInt(Math.floor(Number(tokens) * 10 ** STORY_ROYALTY_TOKEN_DECIMALS));
+};
+
+export const weiToTokens = (wei) => {
+  return Number(wei) / 10 ** STORY_ROYALTY_TOKEN_DECIMALS;
+};
+
+export const percentageToTokens = (percentage) => {
+  return (percentage / 100) * STORY_ROYALTY_TOKEN_TOTAL_TOKENS;
+};
+
 /**
  * Story Protocol Native Royalty Tokens Integration
  * 
@@ -230,10 +249,10 @@ export async function transferRoyaltyTokens(signer, royaltyTokenAddress, toAddre
 /**
  * Get ownership percentage based on token balance
  * @param {string} balance - Token balance (in wei, with 6 decimals)
- * @param {string} totalSupply - Total supply (default: 100M with 6 decimals)
+ * @param {string} totalSupply - Total supply (default: 100 tokens * 10^6)
  * @returns {number} Ownership percentage (0-100)
  */
-export function calculateOwnershipPercentage(balance, totalSupply = STORY_ROYALTY_TOKEN_SUPPLY) {
+export function calculateOwnershipPercentage(balance, totalSupply = STORY_ROYALTY_TOKEN_TOTAL_SUPPLY) {
   const balanceNum = BigInt(balance);
   const totalNum = BigInt(totalSupply);
   
@@ -243,31 +262,4 @@ export function calculateOwnershipPercentage(balance, totalSupply = STORY_ROYALT
   const percentage = (balanceNum * 10000n) / totalNum;
   return Number(percentage) / 100;
 }
-
-/**
- * Convert human-readable token amount to wei (with 6 decimals)
- * @param {number} amount - Human-readable amount (e.g., 1000000 for 1M tokens)
- * @returns {string} Amount in wei
- */
-export function tokensToWei(amount) {
-  const multiplier = BigInt(10 ** STORY_ROYALTY_TOKEN_DECIMALS);
-  return (BigInt(Math.floor(amount)) * multiplier).toString();
-}
-
-/**
- * Convert wei to human-readable token amount (with 6 decimals)
- * @param {string} wei - Amount in wei
- * @returns {number} Human-readable amount
- */
-export function weiToTokens(wei) {
-  const divisor = BigInt(10 ** STORY_ROYALTY_TOKEN_DECIMALS);
-  return Number(BigInt(wei) / divisor);
-}
-
-/**
- * Constants for Story Protocol Royalty Tokens
- */
-export const STORY_ROYALTY_TOKEN_SUPPLY = '100000000000000'; // 100M tokens with 6 decimals (100,000,000 * 10^6)
-export const STORY_ROYALTY_TOKEN_TOTAL_TOKENS = 100000000; // 100M tokens (human-readable)
-export const STORY_ROYALTY_TOKEN_DECIMALS = 6; // Story Protocol uses 6 decimals
 

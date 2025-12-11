@@ -5,6 +5,7 @@
 import prisma from '@/lib/prisma';
 import { createStoryClientServer, registerIPWithSPG, STORY_CONTRACTS, getStoryRpcUrls } from '@/lib/storyProtocolClient';
 import { sendSuccess, sendError, sendValidationError, handleStoryProtocolError } from '@/lib/apiResponse';
+import { saveStoryResponse } from '@/lib/storyProtocolLogger';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -108,6 +109,13 @@ export default async function handler(req, res) {
 
     if (!result?.success) {
       console.error('❌ Registration failed:', lastError || result?.error);
+      // Save failed response for debugging
+      await saveStoryResponse('register-ip-failed', result || lastError, {
+        assetId,
+        ipId: null,
+        txHash: null,
+        error: lastError?.message || result?.error,
+      });
       return handleStoryProtocolError(res, lastError || new Error('SPG registration failed'), 'IP Asset registration');
     }
 
@@ -118,13 +126,33 @@ export default async function handler(req, res) {
     console.log('  - License Terms ID:', result.licenseTermsId);
     console.log('  - Transaction:', result.txHash);
 
-    // Update asset in database
+    // Ensure tokenId is captured (should always be present from SPG)
+    if (!result.tokenId) {
+      console.warn('⚠️  Warning: tokenId missing from SPG registration response');
+    }
+
+    // Save Story Protocol response for debugging
+    await saveStoryResponse('register-ip', result, {
+      assetId,
+      ipId: result.ipId,
+      tokenId: result.tokenId?.toString(),
+      nftContract: result.nftContract,
+      licenseTermsId: result.licenseTermsId?.toString(),
+      txHash: result.txHash,
+      licenseType,
+      commercialRevShare,
+    });
+
+    // Update asset in database with SPG NFT details
+    // Ensure tokenId is always saved (use null if missing but log warning)
     const updatedAsset = await prisma.asset.update({
       where: { id: assetId },
       data: {
         storyProtocolId: result.ipId,
         storyProtocolTxHash: result.txHash,
-        dippchainTokenId: result.tokenId?.toString(),
+        storyNftTokenId: result.tokenId?.toString() || null,
+        storyNftContract: result.nftContract || null,
+        dippchainTokenId: result.tokenId?.toString() || null, // legacy field
         registeredOnChain: true,
         status: 'REGISTERED',
       },
@@ -139,6 +167,7 @@ export default async function handler(req, res) {
       nftContract: result.nftContract,
       licenseTermsId: result.licenseTermsId?.toString(),
       txHash: result.txHash,
+      nftExplorerUrl: `https://aeneid.storyscan.io/token/${result.nftContract}/instance/${result.tokenId?.toString()}`,
       asset: {
         id: updatedAsset.id,
         title: updatedAsset.title,

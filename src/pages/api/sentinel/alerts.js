@@ -16,6 +16,8 @@ async function getAlerts(req, res) {
   try {
     const {
       userId,
+      walletAddress,
+      email,
       assetId,
       status,
       severity,
@@ -26,8 +28,24 @@ async function getAlerts(req, res) {
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const take = parseInt(limit);
 
+    // Find user by ID, wallet address, or email
+    let finalUserId = userId;
+    if (!finalUserId && (walletAddress || email)) {
+      const user = await prisma.user.findFirst({
+        where: {
+          OR: [
+            walletAddress ? { walletAddress: walletAddress.toLowerCase() } : {},
+            email ? { email } : {},
+          ].filter((condition) => Object.keys(condition).length > 0),
+        },
+      });
+      if (user) {
+        finalUserId = user.id;
+      }
+    }
+
     const where = {};
-    if (userId) where.userId = userId;
+    if (finalUserId) where.userId = finalUserId;
     if (assetId) where.assetId = assetId;
     if (status) where.status = status;
     if (severity) where.severity = severity;

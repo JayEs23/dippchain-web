@@ -102,10 +102,11 @@ export default async function handler(req, res) {
       }
 
       // 4. Create Order record with PENDING_TRANSFER status
-      // Seller needs to manually transfer tokens after receiving payment
+      // For primary market sales, there's no listing (direct purchase from creator)
       const order = await tx.order.create({
         data: {
           fractionalizationId, // Link directly to fractionalization for primary sales
+          listingId: null, // No listing for primary market purchases
           buyerId: buyer.id,
           sellerId: fractionalization.asset.userId, // Track seller for fulfillment
           amount: parseFloat(amount),

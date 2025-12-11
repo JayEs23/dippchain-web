@@ -63,6 +63,8 @@ model Asset {
   // On-chain Registration
   storyProtocolId     String?
   storyProtocolTxHash String?
+  storyNftTokenId     String?
+  storyNftContract    String?
   dippchainTokenId    String?
   dippchainTxHash     String?
   registeredOnChain   Boolean @default(false)

@@ -29,7 +29,6 @@ export default function CreateFractionPage() {
   });
 
   const [result, setResult] = useState(null);
-  const [initializingVault, setInitializingVault] = useState(false);
 
   // Fetch user's assets that are registered on Story Protocol
   useEffect(() => {
@@ -58,164 +57,19 @@ export default function CreateFractionPage() {
     }
   };
 
-  const handleInitializeVault = async (asset) => {
-    setInitializingVault(true);
-    const toastId = toast.loading('Initializing Royalty Vault...');
-    
-    try {
-      const response = await fetch('/api/story/initialize-vault', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ipId: asset.storyProtocolId,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        console.error('Vault initialization failed:', data);
-        const errorMsg = data.error?.message || data.details || data.error || 'Failed to initialize vault';
-        toast.error(errorMsg, { id: toastId });
-        setInitializingVault(false);
-        return;
-      }
-
-      // Check if vault was immediately available
-      if (data.vaultAddress) {
-        toast.success('Vault initialized successfully!', { id: toastId });
-        // Immediately proceed to step 2
-        setTimeout(() => {
-          handleAssetSelect(asset);
-        }, 1000);
-      } else if (data.warning) {
-        toast.success('License terms attached. Checking vault...', { id: toastId });
-        // Wait a bit longer and retry
-        setTimeout(() => {
-          handleAssetSelect(asset);
-        }, 5000);
-      } else {
-        toast.success('Vault initialized! Checking...', { id: toastId });
-        // Default wait and retry
-        setTimeout(() => {
-          handleAssetSelect(asset);
-        }, 3000);
-      }
-    } catch (error) {
-      console.error('Initialize vault error:', error);
-      toast.error(error.message || 'Failed to initialize vault', { id: toastId });
-      setInitializingVault(false);
-    }
-  };
 
   const handleAssetSelect = async (asset) => {
     setSelectedAsset(asset);
-    setLoading(true);
-    
-    try {
-      // Use the API endpoint that uses Story Protocol SDK (server-side)
-      const response = await fetch(`/api/fractions/vault?assetId=${asset.id}`);
-      const data = await response.json();
-      
-      if (!response.ok || !data.success) {
-        console.warn('Royalty vault not found for IP:', asset.storyProtocolId);
-        
-        // Show option to initialize vault or retry
-        toast(
-          (t) => (
-            <div style={{ maxWidth: '400px' }}>
-              <strong>⚠️ Royalty Vault Not Found</strong>
-              <p style={{ fontSize: '13px', marginTop: '8px', marginBottom: '12px' }}>
-                {data.details || 'The vault may take a few moments to deploy after attaching license terms, or it might need to be initialized.'}
-              </p>
-              <div style={{ display: 'flex', gap: '8px', flexDirection: 'column' }}>
-                <button
-                  onClick={async () => {
-                    toast.dismiss(t.id);
-                    toast.loading('Retrying vault lookup...', { duration: 3000 });
-                    setTimeout(() => {
-                      handleAssetSelect(asset);
-                    }, 2000);
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    fontSize: '13px',
-                    fontWeight: '500',
-                    color: 'white',
-                    backgroundColor: '#6366f1',
-                    border: 'none',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  🔄 Retry
-                </button>
-                <button
-                  onClick={() => {
-                    toast.dismiss(t.id);
-                    handleInitializeVault(asset);
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    fontSize: '13px',
-                    fontWeight: '500',
-                    color: 'white',
-                    backgroundColor: '#8b5cf6',
-                    border: 'none',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Initialize Vault
-                </button>
-                <button
-                  onClick={() => toast.dismiss(t.id)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    fontSize: '13px',
-                    fontWeight: '500',
-                    color: '#525252',
-                    backgroundColor: 'white',
-                    border: '1px solid #e5e5e5',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ),
-          { duration: 20000 }
-        );
-        
-        setLoading(false);
-        setSelectedAsset(null);
-        return;
-      }
-      
-      // API returns all token details we need
-      setRoyaltyTokenInfo({
-        address: data.vaultAddress,
-        name: data.token.name,
-        symbol: data.token.symbol,
-        decimals: data.token.decimals,
-        totalSupply: data.token.totalSupply,
-        ipAccountBalance: data.token.ipAccountBalance,
-        ipId: asset.storyProtocolId,
-      });
-      
-      setStep(2);
-    } catch (error) {
-      console.error('Failed to fetch royalty token info:', error);
-      toast.error(error.message || 'Failed to get Royalty Token details');
-      setSelectedAsset(null);
-    } finally {
-      setLoading(false);
-    }
+    // Set basic token info (vault will be fetched/initialized automatically by backend)
+    setRoyaltyTokenInfo({
+      address: null, // Will be determined by backend
+      name: `${asset.title} Royalty Tokens`,
+      symbol: 'RT',
+      decimals: 6,
+      totalTokens: STORY_ROYALTY_TOKEN_TOTAL_TOKENS,
+      ipId: asset.storyProtocolId,
+    });
+    setStep(2);
   };
 
   const handleInputChange = (e) => {
@@ -238,7 +92,7 @@ export default function CreateFractionPage() {
   };
 
   const handleCreate = async () => {
-    if (!selectedAsset || !royaltyTokenInfo || !formData.tokensForSale || !formData.pricePerToken) {
+    if (!selectedAsset || !formData.tokensForSale || !formData.pricePerToken) {
       toast.error('Please fill in all fields');
       return;
     }
@@ -248,12 +102,12 @@ export default function CreateFractionPage() {
 
     try {
       // Create fractionalization record in database
+      // Backend will automatically fetch/initialize vault if needed
       const response = await fetch('/api/story-fractions/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           assetId: selectedAsset.id,
-          royaltyTokenAddress: royaltyTokenInfo.address,
           tokensForSale: parseFloat(formData.tokensForSale),
           pricePerToken: parseFloat(formData.pricePerToken),
           currency: 'IP',
@@ -274,7 +128,7 @@ export default function CreateFractionPage() {
       
       setResult({
         fractionalization: data.fractionalization,
-        royaltyTokenAddress: royaltyTokenInfo.address,
+        royaltyTokenAddress: data.fractionalization.tokenAddress,
         tokensForSale: formData.tokensForSale,
         tokensRetained: STORY_ROYALTY_TOKEN_TOTAL_TOKENS - parseFloat(formData.tokensForSale),
         pricePerToken: formData.pricePerToken,
@@ -368,7 +222,6 @@ export default function CreateFractionPage() {
                 <br />
                 Each IP Asset on Story Protocol has 100M native ERC-20 Royalty Tokens (6 decimals). These tokens represent fractional ownership and automatically receive proportional revenue from derivatives and licensing.
                 <br /><br />
-                <strong>Note:</strong> The Royalty Vault is created when you mint the first license token or register a derivative. If your asset doesn't have a vault yet, you'll need to attach license terms first.
               </div>
             </div>
 
@@ -468,7 +321,7 @@ export default function CreateFractionPage() {
         )}
 
         {/* Step 2: Set Terms */}
-        {step === 2 && selectedAsset && royaltyTokenInfo && (
+        {step === 2 && selectedAsset && (
           <>
             <h2 style={{ fontSize: '18px', fontWeight: '600', color: '#0a0a0a', marginBottom: '8px' }}>
               Set Fractionalization Terms
@@ -476,6 +329,19 @@ export default function CreateFractionPage() {
             <p style={{ fontSize: '14px', color: '#737373', marginBottom: '24px' }}>
               Define how many tokens to sell and at what price.
             </p>
+
+            {/* Info Note */}
+            <div style={{
+              padding: '16px',
+              backgroundColor: '#f0f9ff',
+              border: '1px solid #bae6fd',
+              borderRadius: '8px',
+              marginBottom: '24px',
+            }}>
+              <p style={{ fontSize: '13px', color: '#0369a1', margin: 0 }}>
+                <strong>ℹ️ Note:</strong> The Royalty Vault will be automatically initialized if needed when you create the fractionalization.
+              </p>
+            </div>
 
             {/* Royalty Token Info */}
             <div style={{
@@ -489,28 +355,14 @@ export default function CreateFractionPage() {
               </h3>
               <div style={{ display: 'grid', gap: '8px', fontSize: '13px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#737373' }}>Token Address:</span>
-                  <a
-                    href={`https://aeneid.storyscan.io/address/${royaltyTokenInfo.address}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      color: '#2563eb',
-                      textDecoration: 'underline',
-                    }}
-                  >
-                    {royaltyTokenInfo.address.slice(0, 10)}...{royaltyTokenInfo.address.slice(-8)}
-                    <ExternalLink size={12} />
-                  </a>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: '#737373' }}>Total Supply:</span>
                   <span style={{ color: '#0a0a0a', fontWeight: '500' }}>
-                    {STORY_ROYALTY_TOKEN_TOTAL_TOKENS.toLocaleString()} tokens
+                    {STORY_ROYALTY_TOKEN_TOTAL_TOKENS.toLocaleString()} tokens (100% ownership)
                   </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#737373' }}>Decimals:</span>
+                  <span style={{ color: '#0a0a0a', fontWeight: '500' }}>6</span>
                 </div>
               </div>
             </div>

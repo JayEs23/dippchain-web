@@ -1,8 +1,9 @@
 // API Route: Primary transfer of royalty tokens from IP Account (server-owned) to a recipient
 // This is for primary allocation/sale where the platform controls the IP Account (SPG flow).
-import { ethers } from 'ethers';
 import prisma from '@/lib/prisma';
 import { createStoryClientServer } from '@/lib/storyProtocolClient';
+import { tokensToWei } from '@/lib/storyRoyaltyTokens';
+import { saveStoryResponse } from '@/lib/storyProtocolLogger';
 
 // Helper: ensure BigInt serialization
 if (!BigInt.prototype.toJSON) {
@@ -38,10 +39,8 @@ export default async function handler(req, res) {
     // Story Protocol client (server wallet)
     const spClient = await createStoryClientServer();
 
-    // Get royalty vault (token) address
-    const vaultAddress = await spClient.royalty.getRoyaltyVaultAddress({
-      ipId: asset.storyProtocolId,
-    });
+    // Get royalty vault (token) address (ipId string)
+    const vaultAddress = await spClient.royalty.getRoyaltyVaultAddress(asset.storyProtocolId);
 
     if (!vaultAddress || vaultAddress === '0x0000000000000000000000000000000000000000') {
       return res.status(404).json({
@@ -50,10 +49,8 @@ export default async function handler(req, res) {
       });
     }
 
-    // Story Royalty Tokens use 6 decimals; convert human-readable amount to wei-like units
-    const DECIMALS = 6n;
-    const multiplier = 10n ** DECIMALS;
-    const amountWei = BigInt(Math.floor(Number(amountTokens))) * multiplier;
+    // Convert token amount (human) to base units (6 decimals)
+    const amountWei = tokensToWei(amountTokens);
 
     // Transfer from IP Account (server-owned) to recipient
     const tx = await spClient.ipAccount.transferErc20({
@@ -68,9 +65,9 @@ export default async function handler(req, res) {
       txOptions: { waitForTransaction: true },
     });
 
-    return res.status(200).json({
+    const transferResult = {
       success: true,
-      txHash: tx?.txHash || tx?.hash || null, // SDK returns txHash
+      txHash: tx?.txHash || tx?.hash || null,
       vaultAddress,
       amountWei: amountWei.toString(),
       recipient,
@@ -79,7 +76,20 @@ export default async function handler(req, res) {
         title: asset.title,
         storyProtocolId: asset.storyProtocolId,
       },
+    };
+
+    // Save transfer response for debugging
+    await saveStoryResponse('transfer-royalty-tokens', tx, {
+      assetId,
+      ipId: asset.storyProtocolId,
+      vaultAddress,
+      recipient,
+      amountTokens,
+      amountWei: amountWei.toString(),
+      txHash: transferResult.txHash,
     });
+
+    return res.status(200).json(transferResult);
   } catch (error) {
     console.error('Primary transfer error:', error);
     return res.status(500).json({
