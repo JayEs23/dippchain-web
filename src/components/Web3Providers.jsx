@@ -15,7 +15,7 @@ if (typeof window !== 'undefined' && !window.__APPKIT_ANALYTICS_DISABLED__) {
   window.fetch = (...args) => {
     const url = typeof args[0] === 'string' ? args[0] : args[0]?.url;
     if (url && blockedHosts.some((host) => url.includes(host))) {
-      return Promise.resolve(new Response('', { status: 204, statusText: 'analytics disabled' }));
+      return Promise.resolve(new Response(null, { status: 204, statusText: 'analytics disabled' }));
     }
     return originalFetch(...args);
   };

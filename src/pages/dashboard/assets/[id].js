@@ -1,3 +1,5 @@
+'use client';
+
 // Asset Detail Page
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
