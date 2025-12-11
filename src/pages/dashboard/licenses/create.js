@@ -93,7 +93,8 @@ export default function CreateLicensePage() {
   const handleTemplateSelect = (template) => {
     setFormData(prev => ({
       ...prev,
-      templateId: template.id,
+      // Only use templateId if it's a database template (not a default one)
+      templateId: template.isDefault ? '' : template.id,
       customTerms: template.terms,
       isExclusive: template.terms.exclusivity || false,
     }));
@@ -129,14 +130,19 @@ export default function CreateLicensePage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to create license');
+        console.error('Create license failed:', data);
+        // Handle error object structure: { error: { message, code, details } }
+        const errorMessage = data.error?.message || data.error?.details || data.error || 'Failed to create license';
+        toast.error(errorMessage);
+        setLoading(false);
+        return;
       }
 
       toast.success('License created successfully!');
       router.push('/dashboard/licenses');
     } catch (error) {
       console.error('Create license error:', error);
-      toast.error(error.message);
+      toast.error('An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -165,12 +171,12 @@ export default function CreateLicensePage() {
       </Link>
 
       <div style={{
-        maxWidth: '720px',
-        margin: '0 auto',
+        maxWidth: '100%',
+        width: '100%',
         backgroundColor: 'white',
         border: '1px solid #e5e5e5',
         borderRadius: '12px',
-        padding: '32px',
+        padding: '32px 24px',
       }}>
         <h2 style={{ fontSize: '18px', fontWeight: '600', color: '#0a0a0a', marginBottom: '24px' }}>
           Create New License

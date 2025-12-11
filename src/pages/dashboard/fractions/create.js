@@ -1,228 +1,296 @@
-// Create Fractionalization Page
+// Create Fractionalization Page - Using Story Protocol Native Royalty Tokens
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
-import Link from 'next/link';
 import { useAppKitAccount } from '@reown/appkit/react';
-import { useAppKitProvider } from '@reown/appkit/react';
-import { BrowserProvider, Contract, parseEther, getAddress } from 'ethers';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
-import { ArrowLeft, Image, Loader2, ExternalLink, Check, AlertTriangle } from 'lucide-react';
-import { CONTRACTS } from '@/contracts/addresses';
-import DippChainRegistryABI from '@/contracts/abis/DippChainRegistry.json';
-import FractionalizationManagerABI from '@/contracts/abis/FractionalizationManager.json';
+import { ArrowLeft, Loader2, Info, CheckCircle, ExternalLink } from 'lucide-react';
+import Link from 'next/link';
 import toast from 'react-hot-toast';
+import { 
+  STORY_ROYALTY_TOKEN_TOTAL_TOKENS,
+  tokensToWei,
+  weiToTokens,
+} from '@/lib/storyRoyaltyTokens';
 
 export default function CreateFractionPage() {
   const router = useRouter();
-  const { assetId: queryAssetId } = router.query;
   const { address, isConnected } = useAppKitAccount();
-  const { walletProvider } = useAppKitProvider('eip155');
-  
-  const [loading, setLoading] = useState(false);
-  const [step, setStep] = useState(1); // 1: Configure, 2: Deploy, 3: Complete
+
   const [assets, setAssets] = useState([]);
-  const [assetsLoading, setAssetsLoading] = useState(true);
-  const [deployResult, setDeployResult] = useState(null);
+  const [selectedAsset, setSelectedAsset] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [step, setStep] = useState(1);
+  const [royaltyTokenInfo, setRoyaltyTokenInfo] = useState(null);
   
   const [formData, setFormData] = useState({
-    assetId: queryAssetId || '',
-    tokenName: '',
-    tokenSymbol: '',
-    totalSupply: '1000000',
-    pricePerToken: '0.001',
-    currency: 'IP',
-    creatorRetainPercentage: '20', // % of tokens creator keeps
+    tokensForSale: '',
+    pricePerToken: '',
+    retainPercentage: 20,
   });
 
+  const [result, setResult] = useState(null);
+  const [initializingVault, setInitializingVault] = useState(false);
+
+  // Fetch user's assets that are registered on Story Protocol
   useEffect(() => {
     if (isConnected && address) {
       fetchAssets();
     }
   }, [isConnected, address]);
 
-  useEffect(() => {
-    if (queryAssetId) {
-      setFormData(prev => ({ ...prev, assetId: queryAssetId }));
-    }
-  }, [queryAssetId]);
-
   const fetchAssets = async () => {
     try {
-      const response = await fetch(`/api/assets?userId=${address}&status=REGISTERED`);
+      const response = await fetch(`/api/assets?userId=${address}`);
       const data = await response.json();
+      
       if (data.success) {
-        // Filter out already fractionalized assets
-        const available = data.assets.filter(a => !a.fractionalization);
-        setAssets(available);
+        // Filter assets that:
+        // 1. Are registered on Story Protocol
+        // 2. Are NOT already fractionalized
+        const eligibleAssets = data.assets.filter(
+          asset => asset.storyProtocolId && !asset.fractionalization
+        );
+        setAssets(eligibleAssets);
       }
     } catch (error) {
       console.error('Failed to fetch assets:', error);
-    } finally {
-      setAssetsLoading(false);
+      toast.error('Failed to load assets');
     }
   };
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-
-    // Auto-generate token symbol from name
-    if (name === 'tokenName') {
-      const symbol = value
-        .split(' ')
-        .map(word => word[0])
-        .join('')
-        .toUpperCase()
-        .slice(0, 5);
-      setFormData(prev => ({ ...prev, tokenSymbol: symbol || '' }));
-    }
-  };
-
-  const handleDeploy = async () => {
-    if (!formData.assetId || !formData.tokenName || !formData.tokenSymbol) {
-      toast.error('Please fill in all required fields');
-      return;
-    }
-
-    const asset = assets.find(a => a.id === formData.assetId);
-    if (!asset?.dippchainTokenId) {
-      toast.error('Asset must be registered on-chain first');
-      return;
-    }
-
-    if (!walletProvider) {
-      toast.error('Please connect your wallet');
-      return;
-    }
-
-    setLoading(true);
-    setStep(2);
-    const toastId = toast.loading('Starting fractionalization...');
-
+  const handleInitializeVault = async (asset) => {
+    setInitializingVault(true);
+    const toastId = toast.loading('Initializing Royalty Vault...');
+    
     try {
-      const provider = new BrowserProvider(walletProvider);
-      const signer = await provider.getSigner();
-      
-      // First, approve FractionalizationManager to transfer the NFT
-      toast.loading('Step 1/3: Approving NFT transfer...', { id: toastId });
-      
-      const registryAddress = getAddress(CONTRACTS.DippChainRegistry.toLowerCase());
-      const managerAddress = getAddress(CONTRACTS.FractionalizationManager.toLowerCase());
-      
-      const registry = new Contract(registryAddress, DippChainRegistryABI, signer);
-      const manager = new Contract(managerAddress, FractionalizationManagerABI, signer);
-
-      const tokenId = parseInt(asset.dippchainTokenId);
-      
-      // Check if already approved
-      const approved = await registry.getApproved(tokenId);
-      if (approved.toLowerCase() !== managerAddress.toLowerCase()) {
-        toast.loading('Approve NFT transfer in wallet...', { id: toastId });
-        const approveTx = await registry.approve(managerAddress, tokenId);
-        await approveTx.wait();
-      }
-
-      // Now fractionalize
-      toast.loading('Step 2/3: Creating fractional tokens...', { id: toastId });
-      
-      const totalSupply = BigInt(formData.totalSupply);
-      const pricePerToken = parseEther(formData.pricePerToken);
-      const creatorRetainPercentage = parseInt(formData.creatorRetainPercentage);
-
-      console.log('Fractionalizing:', {
-        tokenId,
-        tokenName: formData.tokenName,
-        tokenSymbol: formData.tokenSymbol,
-        totalSupply: totalSupply.toString(),
-        pricePerToken: pricePerToken.toString(),
-        creatorRetainPercentage,
-      });
-
-      toast.loading('Confirm fractionalization in wallet...', { id: toastId });
-      const tx = await manager.fractionalizeAsset(
-        tokenId,
-        formData.tokenName,
-        formData.tokenSymbol,
-        totalSupply,
-        pricePerToken,
-        creatorRetainPercentage
-      );
-
-      toast.loading('Step 3/3: Waiting for confirmation...', { id: toastId });
-      const receipt = await tx.wait();
-
-      // Get token address from event
-      let tokenAddress = null;
-      for (const log of receipt.logs) {
-        try {
-          const parsed = manager.interface.parseLog({ topics: log.topics, data: log.data });
-          if (parsed && parsed.name === 'AssetFractionalized') {
-            tokenAddress = parsed.args.tokenAddress;
-            console.log('Token deployed at:', tokenAddress);
-            break;
-          }
-        } catch {
-          // Not our event
-        }
-      }
-
-      // Save to database
-      toast.loading('Saving to database...', { id: toastId });
-      const createResponse = await fetch('/api/fractions/create', {
+      const response = await fetch('/api/story/initialize-vault', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          assetId: formData.assetId,
-          tokenName: formData.tokenName,
-          tokenSymbol: formData.tokenSymbol,
-          totalSupply: formData.totalSupply,
-          pricePerToken: formData.pricePerToken,
-          currency: formData.currency,
-          creatorRetainPercentage: formData.creatorRetainPercentage,
-          tokenAddress,
-          deployTxHash: receipt.hash,
-          status: 'TRADING',
+          ipId: asset.storyProtocolId,
         }),
       });
 
-      if (!createResponse.ok) {
-        console.error('Failed to save to database');
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        console.error('Vault initialization failed:', data);
+        const errorMsg = data.error?.message || data.details || data.error || 'Failed to initialize vault';
+        toast.error(errorMsg, { id: toastId });
+        setInitializingVault(false);
+        return;
       }
 
-      setDeployResult({
-        tokenAddress,
-        txHash: receipt.hash,
-        totalSupply: formData.totalSupply,
-        availableForSale: Math.floor(parseInt(formData.totalSupply) * (100 - creatorRetainPercentage) / 100),
-      });
-
-      toast.success('Fractionalization complete!', { id: toastId });
-      setStep(3);
+      // Check if vault was immediately available
+      if (data.vaultAddress) {
+        toast.success('Vault initialized successfully!', { id: toastId });
+        // Immediately proceed to step 2
+        setTimeout(() => {
+          handleAssetSelect(asset);
+        }, 1000);
+      } else if (data.warning) {
+        toast.success('License terms attached. Checking vault...', { id: toastId });
+        // Wait a bit longer and retry
+        setTimeout(() => {
+          handleAssetSelect(asset);
+        }, 5000);
+      } else {
+        toast.success('Vault initialized! Checking...', { id: toastId });
+        // Default wait and retry
+        setTimeout(() => {
+          handleAssetSelect(asset);
+        }, 3000);
+      }
     } catch (error) {
-      console.error('Deploy error:', error);
+      console.error('Initialize vault error:', error);
+      toast.error(error.message || 'Failed to initialize vault', { id: toastId });
+      setInitializingVault(false);
+    }
+  };
+
+  const handleAssetSelect = async (asset) => {
+    setSelectedAsset(asset);
+    setLoading(true);
+    
+    try {
+      // Use the API endpoint that uses Story Protocol SDK (server-side)
+      const response = await fetch(`/api/fractions/vault?assetId=${asset.id}`);
+      const data = await response.json();
       
-      let errorMessage = 'Fractionalization failed';
-      if (error.code === 'ACTION_REJECTED') {
-        errorMessage = 'Transaction was rejected';
-      } else if (error.message?.includes('NotAssetOwner')) {
-        errorMessage = 'You are not the owner of this asset';
-      } else if (error.message?.includes('AlreadyFractionalized')) {
-        errorMessage = 'This asset is already fractionalized';
-      } else if (error.shortMessage) {
-        errorMessage = error.shortMessage;
+      if (!response.ok || !data.success) {
+        console.warn('Royalty vault not found for IP:', asset.storyProtocolId);
+        
+        // Show option to initialize vault or retry
+        toast(
+          (t) => (
+            <div style={{ maxWidth: '400px' }}>
+              <strong>⚠️ Royalty Vault Not Found</strong>
+              <p style={{ fontSize: '13px', marginTop: '8px', marginBottom: '12px' }}>
+                {data.details || 'The vault may take a few moments to deploy after attaching license terms, or it might need to be initialized.'}
+              </p>
+              <div style={{ display: 'flex', gap: '8px', flexDirection: 'column' }}>
+                <button
+                  onClick={async () => {
+                    toast.dismiss(t.id);
+                    toast.loading('Retrying vault lookup...', { duration: 3000 });
+                    setTimeout(() => {
+                      handleAssetSelect(asset);
+                    }, 2000);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    fontSize: '13px',
+                    fontWeight: '500',
+                    color: 'white',
+                    backgroundColor: '#6366f1',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  🔄 Retry
+                </button>
+                <button
+                  onClick={() => {
+                    toast.dismiss(t.id);
+                    handleInitializeVault(asset);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    fontSize: '13px',
+                    fontWeight: '500',
+                    color: 'white',
+                    backgroundColor: '#8b5cf6',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Initialize Vault
+                </button>
+                <button
+                  onClick={() => toast.dismiss(t.id)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    fontSize: '13px',
+                    fontWeight: '500',
+                    color: '#525252',
+                    backgroundColor: 'white',
+                    border: '1px solid #e5e5e5',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ),
+          { duration: 20000 }
+        );
+        
+        setLoading(false);
+        setSelectedAsset(null);
+        return;
       }
       
-      toast.error(errorMessage, { id: toastId });
-      setStep(1);
+      // API returns all token details we need
+      setRoyaltyTokenInfo({
+        address: data.vaultAddress,
+        name: data.token.name,
+        symbol: data.token.symbol,
+        decimals: data.token.decimals,
+        totalSupply: data.token.totalSupply,
+        ipAccountBalance: data.token.ipAccountBalance,
+        ipId: asset.storyProtocolId,
+      });
+      
+      setStep(2);
+    } catch (error) {
+      console.error('Failed to fetch royalty token info:', error);
+      toast.error(error.message || 'Failed to get Royalty Token details');
+      setSelectedAsset(null);
     } finally {
       setLoading(false);
     }
   };
 
-  const selectedAsset = assets.find(a => a.id === formData.assetId);
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+
+  const handleRetainPercentageChange = (e) => {
+    const retainPercentage = parseInt(e.target.value) || 0;
+    const tokensForSale = STORY_ROYALTY_TOKEN_TOTAL_TOKENS * (1 - retainPercentage / 100);
+    
+    setFormData(prev => ({
+      ...prev,
+      retainPercentage,
+      tokensForSale: tokensForSale.toString(),
+    }));
+  };
+
+  const handleCreate = async () => {
+    if (!selectedAsset || !royaltyTokenInfo || !formData.tokensForSale || !formData.pricePerToken) {
+      toast.error('Please fill in all fields');
+      return;
+    }
+
+    setLoading(true);
+    const toastId = toast.loading('Creating fractionalization...');
+
+    try {
+      // Create fractionalization record in database
+      const response = await fetch('/api/story-fractions/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assetId: selectedAsset.id,
+          royaltyTokenAddress: royaltyTokenInfo.address,
+          tokensForSale: parseFloat(formData.tokensForSale),
+          pricePerToken: parseFloat(formData.pricePerToken),
+          currency: 'IP',
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        console.error('Create fractionalization failed:', data);
+        const errorMsg = data.error?.message || data.error || 'Failed to create fractionalization';
+        toast.error(errorMsg, { id: toastId });
+        setLoading(false);
+        return;
+      }
+
+      toast.success('Fractionalization created!', { id: toastId });
+      
+      setResult({
+        fractionalization: data.fractionalization,
+        royaltyTokenAddress: royaltyTokenInfo.address,
+        tokensForSale: formData.tokensForSale,
+        tokensRetained: STORY_ROYALTY_TOKEN_TOTAL_TOKENS - parseFloat(formData.tokensForSale),
+        pricePerToken: formData.pricePerToken,
+      });
+      
+      setStep(3);
+    } catch (error) {
+      console.error('Create fractionalization error:', error);
+      toast.error('An unexpected error occurred. Please try again.', { id: toastId });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <DashboardLayout title="Fractionalize Asset">
+    <DashboardLayout title="Create Fractionalization">
       <Link href="/dashboard/fractions">
         <button style={{
           display: 'inline-flex',
@@ -241,213 +309,304 @@ export default function CreateFractionPage() {
         </button>
       </Link>
 
+      {/* Progress Steps */}
       <div style={{
-        maxWidth: '640px',
-        margin: '0 auto',
+        display: 'flex',
+        justifyContent: 'center',
+        gap: '8px',
+        marginBottom: '32px',
+      }}>
+        {['Select Asset', 'Set Terms', 'Complete'].map((label, index) => (
+          <div key={index} style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '8px 16px',
+            borderRadius: '8px',
+            backgroundColor: step > index ? '#0a0a0a' : step === index + 1 ? '#0a0a0a' : '#f5f5f5',
+            color: step >= index + 1 ? 'white' : '#737373',
+            fontSize: '13px',
+            fontWeight: '500',
+          }}>
+            {step > index + 1 ? <CheckCircle size={14} /> : <span>{index + 1}</span>}
+            {label}
+          </div>
+        ))}
+      </div>
+
+      <div style={{
+        maxWidth: '100%',
+        width: '100%',
         backgroundColor: 'white',
         border: '1px solid #e5e5e5',
         borderRadius: '12px',
-        padding: '32px',
+        padding: '32px 24px',
       }}>
-        {/* Progress Steps */}
-        <div style={{
-          display: 'flex',
-          justifyContent: 'center',
-          gap: '8px',
-          marginBottom: '32px',
-        }}>
-          {[1, 2, 3].map((s) => (
-            <div key={s} style={{ display: 'flex', alignItems: 'center' }}>
-              <div style={{
-                width: '28px',
-                height: '28px',
-                borderRadius: '50%',
-                backgroundColor: s <= step ? '#0a0a0a' : '#f5f5f5',
-                color: s <= step ? 'white' : '#737373',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '13px',
-                fontWeight: '500',
-              }}>
-                {s < step ? <Check size={14} /> : s}
-              </div>
-              {s < 3 && (
-                <div style={{
-                  width: '60px',
-                  height: '2px',
-                  backgroundColor: s < step ? '#0a0a0a' : '#e5e5e5',
-                  margin: '0 8px',
-                }} />
-              )}
-            </div>
-          ))}
-        </div>
-
+        {/* Step 1: Select Asset */}
         {step === 1 && (
           <>
             <h2 style={{ fontSize: '18px', fontWeight: '600', color: '#0a0a0a', marginBottom: '8px' }}>
-              Configure Fractionalization
+              Select Asset to Fractionalize
             </h2>
             <p style={{ fontSize: '14px', color: '#737373', marginBottom: '24px' }}>
-              Set up the token parameters for your fractionalized asset
+              Choose an asset that is registered on Story Protocol to fractionalize using Story's native Royalty Tokens.
             </p>
 
-            {/* Asset Selection */}
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: '#0a0a0a', marginBottom: '8px' }}>
-                Select Asset *
-              </label>
-              {assetsLoading ? (
-                <div style={{ padding: '20px', textAlign: 'center', color: '#737373' }}>Loading...</div>
-              ) : assets.length === 0 ? (
-                <div style={{
-                  padding: '20px',
-                  textAlign: 'center',
-                  backgroundColor: '#fafafa',
-                  borderRadius: '8px',
-                  border: '1px dashed #e5e5e5',
-                }}>
-                  <p style={{ fontSize: '14px', color: '#737373', marginBottom: '12px' }}>
-                    No available assets to fractionalize
-                  </p>
+            {/* Info Box */}
+            <div style={{
+              display: 'flex',
+              gap: '12px',
+              padding: '16px',
+              backgroundColor: '#eff6ff',
+              border: '1px solid #bfdbfe',
+              borderRadius: '8px',
+              marginBottom: '24px',
+            }}>
+              <Info size={20} color="#2563eb" style={{ flexShrink: 0, marginTop: '2px' }} />
+              <div style={{ fontSize: '13px', color: '#1e40af', lineHeight: 1.5 }}>
+                <strong>Using Story Protocol Royalty Tokens</strong>
+                <br />
+                Each IP Asset on Story Protocol has 100M native ERC-20 Royalty Tokens (6 decimals). These tokens represent fractional ownership and automatically receive proportional revenue from derivatives and licensing.
+                <br /><br />
+                <strong>Note:</strong> The Royalty Vault is created when you mint the first license token or register a derivative. If your asset doesn't have a vault yet, you'll need to attach license terms first.
+              </div>
+            </div>
+
+            {loading ? (
+              <div style={{ textAlign: 'center', padding: '40px' }}>
+                <Loader2 size={32} className="animate-spin" color="#737373" />
+                <p style={{ fontSize: '14px', color: '#737373', marginTop: '12px' }}>
+                  Loading eligible assets...
+                </p>
+              </div>
+            ) : assets.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px', color: '#737373' }}>
+                <p>No eligible assets found.</p>
+                <p style={{ fontSize: '13px', marginTop: '8px' }}>
+                  Assets must be registered on Story Protocol to be fractionalized.
+                </p>
+                <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', marginTop: '16px' }}>
+                  <button
+                    onClick={fetchAssets}
+                    style={{
+                      padding: '10px 20px',
+                      fontSize: '14px',
+                      color: '#0a0a0a',
+                      backgroundColor: 'white',
+                      border: '1px solid #e5e5e5',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Refresh
+                  </button>
                   <Link href="/dashboard/upload">
-                    <button type="button" style={{
-                      padding: '8px 16px',
-                      fontSize: '13px',
+                    <button style={{
+                      padding: '10px 20px',
+                      fontSize: '14px',
                       color: 'white',
                       backgroundColor: '#0a0a0a',
                       border: 'none',
-                      borderRadius: '6px',
+                      borderRadius: '8px',
                       cursor: 'pointer',
                     }}>
-                      Upload Asset
+                      Upload New Asset
                     </button>
                   </Link>
                 </div>
-              ) : (
-                <select
-                  name="assetId"
-                  value={formData.assetId}
-                  onChange={handleInputChange}
-                  style={{
-                    width: '100%',
-                    padding: '12px',
-                    fontSize: '14px',
-                    border: '1px solid #e5e5e5',
-                    borderRadius: '8px',
-                    backgroundColor: 'white',
-                  }}
-                >
-                  <option value="">Choose an asset...</option>
-                  {assets.map((asset) => (
-                    <option key={asset.id} value={asset.id}>
-                      {asset.title} ({asset.assetType})
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-
-            {/* Token Name */}
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: '#0a0a0a', marginBottom: '8px' }}>
-                Token Name *
-              </label>
-              <input
-                type="text"
-                name="tokenName"
-                value={formData.tokenName}
-                onChange={handleInputChange}
-                placeholder="e.g., Summer Photo Token"
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  fontSize: '14px',
-                  border: '1px solid #e5e5e5',
-                  borderRadius: '8px',
-                }}
-              />
-            </div>
-
-            {/* Token Symbol */}
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: '#0a0a0a', marginBottom: '8px' }}>
-                Token Symbol *
-              </label>
-              <input
-                type="text"
-                name="tokenSymbol"
-                value={formData.tokenSymbol}
-                onChange={handleInputChange}
-                placeholder="e.g., SPT"
-                maxLength={5}
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  fontSize: '14px',
-                  border: '1px solid #e5e5e5',
-                  borderRadius: '8px',
-                  textTransform: 'uppercase',
-                }}
-              />
-            </div>
-
-            {/* Supply & Price */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: '#0a0a0a', marginBottom: '8px' }}>
-                  Total Supply
-                </label>
-                <input
-                  type="number"
-                  name="totalSupply"
-                  value={formData.totalSupply}
-                  onChange={handleInputChange}
-                  min="1"
-                  style={{
-                    width: '100%',
-                    padding: '12px',
-                    fontSize: '14px',
-                    border: '1px solid #e5e5e5',
-                    borderRadius: '8px',
-                  }}
-                />
               </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: '#0a0a0a', marginBottom: '8px' }}>
-                  Price per Token (IP)
-                </label>
-                <input
-                  type="number"
-                  name="pricePerToken"
-                  value={formData.pricePerToken}
-                  onChange={handleInputChange}
-                  step="0.0001"
-                  min="0"
-                  style={{
-                    width: '100%',
-                    padding: '12px',
-                    fontSize: '14px',
-                    border: '1px solid #e5e5e5',
-                    borderRadius: '8px',
-                  }}
-                />
+            ) : (
+              <div style={{ display: 'grid', gap: '12px' }}>
+                {assets.map((asset) => (
+                  <div
+                    key={asset.id}
+                    onClick={() => handleAssetSelect(asset)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '16px',
+                      padding: '16px',
+                      border: '1px solid #e5e5e5',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = '#0a0a0a';
+                      e.currentTarget.style.backgroundColor = '#f5f5f5';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = '#e5e5e5';
+                      e.currentTarget.style.backgroundColor = 'white';
+                    }}
+                  >
+                    {asset.thumbnailUrl && (
+                      <img
+                        src={asset.thumbnailUrl}
+                        alt={asset.title}
+                        style={{
+                          width: '60px',
+                          height: '60px',
+                          objectFit: 'cover',
+                          borderRadius: '6px',
+                        }}
+                      />
+                    )}
+                    <div style={{ flex: 1 }}>
+                      <h3 style={{ fontSize: '15px', fontWeight: '500', color: '#0a0a0a', marginBottom: '4px' }}>
+                        {asset.title}
+                      </h3>
+                      <p style={{ fontSize: '13px', color: '#737373' }}>
+                        Type: {asset.assetType} • Registered on Story Protocol
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Step 2: Set Terms */}
+        {step === 2 && selectedAsset && royaltyTokenInfo && (
+          <>
+            <h2 style={{ fontSize: '18px', fontWeight: '600', color: '#0a0a0a', marginBottom: '8px' }}>
+              Set Fractionalization Terms
+            </h2>
+            <p style={{ fontSize: '14px', color: '#737373', marginBottom: '24px' }}>
+              Define how many tokens to sell and at what price.
+            </p>
+
+            {/* Royalty Token Info */}
+            <div style={{
+              padding: '16px',
+              backgroundColor: '#f5f5f5',
+              borderRadius: '8px',
+              marginBottom: '24px',
+            }}>
+              <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#0a0a0a', marginBottom: '12px' }}>
+                Story Protocol Royalty Token
+              </h3>
+              <div style={{ display: 'grid', gap: '8px', fontSize: '13px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#737373' }}>Token Address:</span>
+                  <a
+                    href={`https://aeneid.storyscan.io/address/${royaltyTokenInfo.address}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      color: '#2563eb',
+                      textDecoration: 'underline',
+                    }}
+                  >
+                    {royaltyTokenInfo.address.slice(0, 10)}...{royaltyTokenInfo.address.slice(-8)}
+                    <ExternalLink size={12} />
+                  </a>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#737373' }}>Total Supply:</span>
+                  <span style={{ color: '#0a0a0a', fontWeight: '500' }}>
+                    {STORY_ROYALTY_TOKEN_TOTAL_TOKENS.toLocaleString()} tokens
+                  </span>
+                </div>
               </div>
             </div>
 
-            {/* Creator Retain Percentage */}
+            {/* Retain Percentage Slider */}
             <div style={{ marginBottom: '24px' }}>
-              <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: '#0a0a0a', marginBottom: '8px' }}>
-                Creator Retain (%)
+              <label style={{
+                display: 'block',
+                fontSize: '14px',
+                fontWeight: '500',
+                color: '#0a0a0a',
+                marginBottom: '12px',
+              }}>
+                How much ownership do you want to retain?
+              </label>
+              <input
+                type="range"
+                name="retainPercentage"
+                min="0"
+                max="100"
+                step="5"
+                value={formData.retainPercentage}
+                onChange={handleRetainPercentageChange}
+                style={{
+                  width: '100%',
+                  height: '6px',
+                  borderRadius: '3px',
+                  marginBottom: '12px',
+                }}
+              />
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: '13px',
+                color: '#737373',
+              }}>
+                <span>Sell All (0%)</span>
+                <span style={{ fontWeight: '600', color: '#0a0a0a', fontSize: '16px' }}>
+                  {formData.retainPercentage}% Retained
+                </span>
+                <span>Keep All (100%)</span>
+              </div>
+            </div>
+
+            {/* Token Distribution Summary */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '12px',
+              marginBottom: '24px',
+            }}>
+              <div style={{
+                padding: '16px',
+                backgroundColor: '#f0fdf4',
+                border: '1px solid #86efac',
+                borderRadius: '8px',
+              }}>
+                <p style={{ fontSize: '12px', color: '#15803d', marginBottom: '4px' }}>You Keep</p>
+                <p style={{ fontSize: '20px', fontWeight: '600', color: '#15803d' }}>
+                  {(STORY_ROYALTY_TOKEN_TOTAL_TOKENS * formData.retainPercentage / 100).toLocaleString()}
+                </p>
+                <p style={{ fontSize: '11px', color: '#15803d' }}>{formData.retainPercentage}% ownership</p>
+              </div>
+              <div style={{
+                padding: '16px',
+                backgroundColor: '#eff6ff',
+                border: '1px solid #93c5fd',
+                borderRadius: '8px',
+              }}>
+                <p style={{ fontSize: '12px', color: '#1e40af', marginBottom: '4px' }}>For Sale</p>
+                <p style={{ fontSize: '20px', fontWeight: '600', color: '#1e40af' }}>
+                  {(STORY_ROYALTY_TOKEN_TOTAL_TOKENS * (100 - formData.retainPercentage) / 100).toLocaleString()}
+                </p>
+                <p style={{ fontSize: '11px', color: '#1e40af' }}>{100 - formData.retainPercentage}% ownership</p>
+              </div>
+            </div>
+
+            {/* Price Per Token */}
+            <div style={{ marginBottom: '24px' }}>
+              <label style={{
+                display: 'block',
+                fontSize: '14px',
+                fontWeight: '500',
+                color: '#0a0a0a',
+                marginBottom: '8px',
+              }}>
+                Price Per Token (IP)
               </label>
               <input
                 type="number"
-                name="creatorRetainPercentage"
-                value={formData.creatorRetainPercentage}
+                name="pricePerToken"
+                value={formData.pricePerToken}
                 onChange={handleInputChange}
+                placeholder="0.00001"
+                step="0.00001"
                 min="0"
-                max="100"
                 style={{
                   width: '100%',
                   padding: '12px',
@@ -456,154 +615,151 @@ export default function CreateFractionPage() {
                   borderRadius: '8px',
                 }}
               />
-              <p style={{ fontSize: '12px', color: '#737373', marginTop: '6px' }}>
-                Percentage of tokens you keep. The rest ({100 - parseInt(formData.creatorRetainPercentage || 0)}%) will be available for sale.
+              {formData.pricePerToken && formData.tokensForSale && (
+                <p style={{ fontSize: '13px', color: '#737373', marginTop: '8px' }}>
+                  Total revenue if all tokens sell: <strong>{(parseFloat(formData.pricePerToken) * parseFloat(formData.tokensForSale)).toFixed(4)} IP</strong>
+                </p>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button
+                onClick={() => setStep(1)}
+                disabled={loading}
+                style={{
+                  flex: 1,
+                  padding: '12px',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  color: '#525252',
+                  backgroundColor: 'white',
+                  border: '1px solid #e5e5e5',
+                  borderRadius: '8px',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Back
+              </button>
+              <button
+                onClick={handleCreate}
+                disabled={loading || !formData.pricePerToken}
+                style={{
+                  flex: 1,
+                  padding: '12px',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  color: 'white',
+                  backgroundColor: (loading || !formData.pricePerToken) ? '#a3a3a3' : '#0a0a0a',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: (loading || !formData.pricePerToken) ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                }}
+              >
+                {loading ? <Loader2 size={16} className="animate-spin" /> : null}
+                Create Fractionalization
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Step 3: Complete */}
+        {step === 3 && result && (
+          <>
+            <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+              <div style={{
+                display: 'inline-flex',
+                padding: '16px',
+                backgroundColor: '#f0fdf4',
+                borderRadius: '50%',
+                marginBottom: '16px',
+              }}>
+                <CheckCircle size={48} color="#15803d" />
+              </div>
+              <h2 style={{ fontSize: '20px', fontWeight: '600', color: '#0a0a0a', marginBottom: '8px' }}>
+                Fractionalization Created!
+              </h2>
+              <p style={{ fontSize: '14px', color: '#737373' }}>
+                Your asset is now fractionalized using Story Protocol's Royalty Tokens.
               </p>
             </div>
 
             {/* Summary */}
-            {formData.totalSupply && formData.pricePerToken && (
-              <div style={{
-                padding: '16px',
-                backgroundColor: '#f5f5f5',
-                borderRadius: '8px',
-                marginBottom: '24px',
-              }}>
-                <h4 style={{ fontSize: '13px', fontWeight: '600', color: '#0a0a0a', marginBottom: '12px' }}>
-                  Summary
-                </h4>
-                <div style={{ display: 'grid', gap: '8px', fontSize: '13px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: '#737373' }}>Total Supply</span>
-                    <span style={{ color: '#0a0a0a', fontWeight: '500' }}>{parseInt(formData.totalSupply).toLocaleString()} tokens</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: '#737373' }}>You Keep</span>
-                    <span style={{ color: '#0a0a0a', fontWeight: '500' }}>
-                      {Math.floor(parseInt(formData.totalSupply) * parseInt(formData.creatorRetainPercentage) / 100).toLocaleString()} tokens ({formData.creatorRetainPercentage}%)
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: '#737373' }}>For Sale</span>
-                    <span style={{ color: '#0a0a0a', fontWeight: '500' }}>
-                      {Math.floor(parseInt(formData.totalSupply) * (100 - parseInt(formData.creatorRetainPercentage)) / 100).toLocaleString()} tokens
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #e5e5e5', paddingTop: '8px', marginTop: '4px' }}>
-                    <span style={{ color: '#737373' }}>Potential Raise</span>
-                    <span style={{ color: '#16a34a', fontWeight: '600' }}>
-                      {(Math.floor(parseInt(formData.totalSupply) * (100 - parseInt(formData.creatorRetainPercentage)) / 100) * parseFloat(formData.pricePerToken)).toLocaleString()} IP
-                    </span>
-                  </div>
+            <div style={{
+              padding: '20px',
+              backgroundColor: '#f5f5f5',
+              borderRadius: '8px',
+              marginBottom: '24px',
+            }}>
+              <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#0a0a0a', marginBottom: '16px' }}>
+                Summary
+              </h3>
+              <div style={{ display: 'grid', gap: '12px', fontSize: '14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#737373' }}>Tokens for Sale:</span>
+                  <span style={{ color: '#0a0a0a', fontWeight: '500' }}>
+                    {parseFloat(result.tokensForSale).toLocaleString()} tokens
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#737373' }}>Tokens You Keep:</span>
+                  <span style={{ color: '#0a0a0a', fontWeight: '500' }}>
+                    {result.tokensRetained.toLocaleString()} tokens
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#737373' }}>Price Per Token:</span>
+                  <span style={{ color: '#0a0a0a', fontWeight: '500' }}>
+                    {result.pricePerToken} IP
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#737373' }}>Royalty Token:</span>
+                  <a
+                    href={`https://aeneid.storyscan.io/address/${result.royaltyTokenAddress}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      color: '#2563eb',
+                      textDecoration: 'underline',
+                      fontSize: '13px',
+                    }}
+                  >
+                    View Token <ExternalLink size={12} />
+                  </a>
                 </div>
               </div>
-            )}
-
-            <button
-              onClick={handleDeploy}
-              disabled={loading || !formData.assetId || !formData.tokenName || !formData.tokenSymbol}
-              style={{
-                width: '100%',
-                padding: '14px',
-                fontSize: '14px',
-                fontWeight: '600',
-                color: 'white',
-                backgroundColor: (loading || !formData.assetId) ? '#a3a3a3' : '#0a0a0a',
-                border: 'none',
-                borderRadius: '8px',
-                cursor: (loading || !formData.assetId) ? 'not-allowed' : 'pointer',
-              }}
-            >
-              Deploy Token
-            </button>
-          </>
-        )}
-
-        {step === 2 && (
-          <div style={{ textAlign: 'center', padding: '40px 0' }}>
-            <Loader2 size={48} className="animate-spin" style={{ margin: '0 auto 16px' }} />
-            <h2 style={{ fontSize: '18px', fontWeight: '600', color: '#0a0a0a', marginBottom: '8px' }}>
-              Deploying Token
-            </h2>
-            <p style={{ fontSize: '14px', color: '#737373' }}>
-              Please confirm the transaction in your wallet...
-            </p>
-          </div>
-        )}
-
-        {step === 3 && deployResult && (
-          <div style={{ textAlign: 'center' }}>
-            <div style={{
-              width: '64px',
-              height: '64px',
-              margin: '0 auto 16px',
-              borderRadius: '50%',
-              backgroundColor: '#dcfce7',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}>
-              <Check size={32} color="#16a34a" />
             </div>
-            
-            <h2 style={{ fontSize: '18px', fontWeight: '600', color: '#0a0a0a', marginBottom: '8px' }}>
-              Fractionalization Complete!
-            </h2>
-            <p style={{ fontSize: '14px', color: '#737373', marginBottom: '24px' }}>
-              Your asset has been fractionalized into tradeable tokens
-            </p>
 
-            {deployResult.tokenAddress && (
-              <div style={{
-                padding: '16px',
-                backgroundColor: '#f5f5f5',
-                borderRadius: '8px',
-                marginBottom: '24px',
-                textAlign: 'left',
-              }}>
-                <div style={{ fontSize: '12px', color: '#737373', marginBottom: '4px' }}>Token Address</div>
-                <code style={{ fontSize: '13px', color: '#0a0a0a', wordBreak: 'break-all' }}>
-                  {deployResult.tokenAddress}
-                </code>
-              </div>
-            )}
+            {/* Next Steps */}
+            <div style={{
+              padding: '16px',
+              backgroundColor: '#eff6ff',
+              border: '1px solid #bfdbfe',
+              borderRadius: '8px',
+              marginBottom: '24px',
+            }}>
+              <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#1e40af', marginBottom: '8px' }}>
+                Next Steps
+              </h3>
+              <ul style={{ fontSize: '13px', color: '#1e40af', lineHeight: 1.8, paddingLeft: '20px' }}>
+                <li>Your tokens are now listed on the marketplace</li>
+                <li>Buyers will purchase tokens, and you'll receive IP tokens</li>
+                <li>Revenue from derivatives/licensing will flow to all token holders</li>
+                <li>Token holders can trade on secondary markets</li>
+              </ul>
+            </div>
 
-            {deployResult.txHash && (
-              <a
-                href={`https://aeneid.storyscan.io/tx/${deployResult.txHash}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  fontSize: '14px',
-                  color: '#0a0a0a',
-                  textDecoration: 'underline',
-                  marginBottom: '24px',
-                }}
-              >
-                View Transaction <ExternalLink size={14} />
-              </a>
-            )}
-
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <Link href="/dashboard/fractions" style={{ flex: 1 }}>
-                <button style={{
-                  width: '100%',
-                  padding: '12px',
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  color: '#0a0a0a',
-                  backgroundColor: 'white',
-                  border: '1px solid #e5e5e5',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                }}>
-                  View All Fractions
-                </button>
-              </Link>
-              <Link href="/dashboard/marketplace" style={{ flex: 1 }}>
+            {/* Actions */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <Link href="/dashboard/marketplace">
                 <button style={{
                   width: '100%',
                   padding: '12px',
@@ -615,14 +771,39 @@ export default function CreateFractionPage() {
                   borderRadius: '8px',
                   cursor: 'pointer',
                 }}>
-                  Go to Marketplace
+                  View in Marketplace
                 </button>
               </Link>
+              <button
+                onClick={() => {
+                  setStep(1);
+                  setSelectedAsset(null);
+                  setRoyaltyTokenInfo(null);
+                  setFormData({
+                    tokensForSale: '',
+                    pricePerToken: '',
+                    retainPercentage: 20,
+                  });
+                  setResult(null);
+                  fetchAssets();
+                }}
+                style={{
+                  padding: '12px',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  color: '#525252',
+                  backgroundColor: 'white',
+                  border: '1px solid #e5e5e5',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                }}
+              >
+                Fractionalize Another
+              </button>
             </div>
-          </div>
+          </>
         )}
       </div>
     </DashboardLayout>
   );
 }
-

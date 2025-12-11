@@ -1,15 +1,15 @@
 import { Shield, Eye, Coins, PieChart, Bell, FileCheck, Vote, Scale, Fingerprint } from 'lucide-react';
 
 const features = [
-  { icon: Fingerprint, title: 'Invisible Watermarking', desc: 'Embed unique watermarks that survive modifications.' },
-  { icon: Shield, title: 'IP Asset Registration', desc: 'Register on Story Protocol with immutable ownership.' },
-  { icon: Eye, title: 'AI Sentinel Detection', desc: 'Scan the internet for unauthorized content use.' },
-  { icon: Bell, title: 'Real-Time Alerts', desc: 'Instant notifications with evidence packages.' },
-  { icon: FileCheck, title: 'PIL Licensing', desc: 'Programmable IP Licenses with custom terms.' },
-  { icon: PieChart, title: 'Fractionalization', desc: 'Split IP ownership into tradeable tokens.' },
-  { icon: Coins, title: 'IP Token Royalties', desc: 'Earn IP tokens from licenses and sales.' },
-  { icon: Vote, title: 'DAO Governance', desc: 'Token holders vote on platform decisions.' },
-  { icon: Scale, title: 'Dispute Resolution', desc: 'File disputes with on-chain evidence.' },
+  { icon: Fingerprint, title: 'Invisible Watermarking', desc: 'Embed resilient, invisible fingerprints tied to your IP metadata so derivatives and crops remain attributable.' },
+  { icon: Shield, title: 'Story Protocol Registration', desc: 'One-transaction SPG flow: mint NFT, register IP, attach PIL terms, and open a royalty vault with hashes pinned to IPFS.' },
+  { icon: Eye, title: 'AI Sentinel Detection', desc: 'Similarity + metadata checks across socials, marketplaces, and the open web to flag misuse—even when assets are modified.' },
+  { icon: Bell, title: 'Real-Time Alerts', desc: 'Auto-generate evidence (URLs, screenshots, timestamps, hashes) and notify you the moment misuse is detected.' },
+  { icon: FileCheck, title: 'Programmable Licensing', desc: 'Preset PIL terms (commercial, remix, non-commercial) with rev-share, minting fees, and attribution baked in.' },
+  { icon: PieChart, title: 'Fractionalization', desc: 'Issue 100M ERC20 royalty tokens per IP so collaborators and fans can co-own and share upside.' },
+  { icon: Coins, title: 'IP Token Royalties', desc: 'Route licensing fees into the IP vault and stream payouts to token holders with on-chain accounting.' },
+  { icon: Vote, title: 'DAO Governance', desc: 'Token-weighted proposals for derivatives, collaborations, pricing changes, and enforcement strategy.' },
+  { icon: Scale, title: 'Dispute & Evidence', desc: 'Escalate to disputes with Story Protocol modules and submit cryptographically anchored evidence packs.' },
 ];
 
 export default function Features() {
@@ -21,8 +21,8 @@ export default function Features() {
           <h2 style={{ fontSize: '32px', fontWeight: '600', color: '#0a0a0a', marginBottom: '12px', letterSpacing: '-0.02em' }}>
             Everything You Need
           </h2>
-          <p style={{ color: '#737373', maxWidth: '440px', margin: '0 auto' }}>
-            A complete toolkit to register IP assets, protect your content, and earn royalties on Story Protocol.
+          <p style={{ color: '#737373', maxWidth: '520px', margin: '0 auto', lineHeight: '1.6' }}>
+            A complete toolkit to register, protect, license, fractionalize, and monetize your IP with Story Protocol—without juggling multiple dashboards.
           </p>
         </div>
 

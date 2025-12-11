@@ -81,7 +81,7 @@ export default function LicensesPage() {
   return (
     <DashboardLayout title="Licenses">
       {/* Tabs & Actions */}
-      <div style={{
+      <div className="licenses-header" style={{
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
@@ -197,30 +197,31 @@ export default function LicensesPage() {
             )}
           </div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ backgroundColor: '#fafafa', borderBottom: '1px solid #e5e5e5' }}>
-                <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#525252' }}>
-                  Asset
-                </th>
-                <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#525252' }}>
-                  Type
-                </th>
-                <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#525252' }}>
-                  Price
-                </th>
-                <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#525252' }}>
-                  Status
-                </th>
-                <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#525252' }}>
-                  Created
-                </th>
-                <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#525252' }}>
-                  
-                </th>
-              </tr>
-            </thead>
-            <tbody>
+          <div>
+            <table className="licenses-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#fafafa', borderBottom: '1px solid #e5e5e5' }}>
+                  <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#525252' }}>
+                    Asset
+                  </th>
+                  <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#525252' }}>
+                    Type
+                  </th>
+                  <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#525252' }}>
+                    Price
+                  </th>
+                  <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#525252' }}>
+                    Status
+                  </th>
+                  <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#525252' }}>
+                    Created
+                  </th>
+                  <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#525252' }}>
+                    
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
               {licenses.map((license) => (
                 <tr key={license.id} style={{ borderBottom: '1px solid #f5f5f5' }}>
                   <td style={{ padding: '14px 16px' }}>
@@ -292,10 +293,121 @@ export default function LicensesPage() {
                   </td>
                 </tr>
               ))}
-            </tbody>
-          </table>
+              </tbody>
+            </table>
+
+            {/* Mobile Cards */}
+            <div className="licenses-cards">
+              {licenses.map((license) => (
+                <div key={license.id} style={{
+                  padding: '16px',
+                  borderBottom: '1px solid #f5f5f5',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: '12px' }}>
+                    <div style={{
+                      width: '48px',
+                      height: '48px',
+                      borderRadius: '8px',
+                      backgroundColor: '#f5f5f5',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      overflow: 'hidden',
+                      flexShrink: 0,
+                    }}>
+                      {license.asset?.thumbnailUrl ? (
+                        <img 
+                          src={license.asset.thumbnailUrl} 
+                          alt="" 
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        />
+                      ) : (
+                        <AssetIcon type={license.asset?.assetType} size={20} />
+                      )}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '14px', fontWeight: '600', color: '#0a0a0a', marginBottom: '4px' }}>
+                        {license.asset?.title || 'Unknown Asset'}
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#737373', marginBottom: '8px' }}>
+                        {license.template?.name || license.licenseType}
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <StatusBadge status={license.status} />
+                        <span style={{
+                          fontSize: '11px',
+                          padding: '4px 8px',
+                          backgroundColor: license.isExclusive ? '#fef3c7' : '#f5f5f5',
+                          color: license.isExclusive ? '#d97706' : '#525252',
+                          borderRadius: '4px',
+                        }}>
+                          {license.isExclusive ? 'Exclusive' : license.licenseType}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '12px', borderTop: '1px solid #f5f5f5' }}>
+                    <div>
+                      <div style={{ fontSize: '14px', fontWeight: '600', color: '#0a0a0a' }}>
+                        {license.price ? formatCurrency(license.price, license.currency) : 'Free'}
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#737373' }}>
+                        {formatDate(license.createdAt)}
+                      </div>
+                    </div>
+                    <Link href={`/dashboard/licenses/${license.id}`}>
+                      <button style={{
+                        padding: '8px 16px',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        color: '#0a0a0a',
+                        backgroundColor: 'white',
+                        border: '1px solid #e5e5e5',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                      }}>
+                        View
+                      </button>
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
       </div>
+
+      <style jsx>{`
+        .licenses-cards {
+          display: none;
+        }
+
+        @media (max-width: 768px) {
+          .licenses-table {
+            display: none;
+          }
+
+          .licenses-cards {
+            display: block;
+          }
+
+          :global(.licenses-header) {
+            flex-direction: column;
+            align-items: stretch !important;
+            gap: 12px;
+          }
+
+          :global(.licenses-header) > div:first-child {
+            width: 100%;
+            justify-content: center;
+          }
+
+          :global(.licenses-header) button {
+            width: 100%;
+            justify-content: center;
+          }
+        }
+      `}</style>
     </DashboardLayout>
   );
 }

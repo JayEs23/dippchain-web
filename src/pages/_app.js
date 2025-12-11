@@ -1,5 +1,6 @@
 import '@/styles/globals.css';
 import Web3Providers from '@/components/Web3Providers';
+import AuthGuard from '@/components/AuthGuard';
 import Head from 'next/head';
 
 export default function App({ Component, pageProps }) {
@@ -14,8 +15,10 @@ export default function App({ Component, pageProps }) {
         <link rel="icon" href="/favicon.ico" />
       </Head>
       
-      <Web3Providers>
-        {getLayout(<Component {...pageProps} />)}
+      <Web3Providers cookies={pageProps.cookies}>
+        <AuthGuard>
+          {getLayout(<Component {...pageProps} />)}
+        </AuthGuard>
       </Web3Providers>
     </>
   );

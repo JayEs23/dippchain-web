@@ -1,139 +1,290 @@
-// Marketplace Page - Primary & Secondary Sales
+// Marketplace Page - Primary + Secondary Trading with Story Protocol Royalty Tokens
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
 import { useAppKitAccount, useAppKitProvider } from '@reown/appkit/react';
-import { BrowserProvider, Contract, parseEther, formatEther, getAddress } from 'ethers';
+import { BrowserProvider, Contract, parseEther } from 'ethers';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
-import { 
-  Store, Search, Filter, TrendingUp, 
-  Image, ShoppingCart, Tag, Loader2, X, ExternalLink
-} from 'lucide-react';
-import { formatCurrency, formatNumber } from '@/lib/utils';
-import { CONTRACTS } from '@/contracts/addresses';
-import FractionalizationManagerABI from '@/contracts/abis/FractionalizationManager.json';
+import { ShoppingCart, TrendingUp, Users, Filter, Loader2, ExternalLink } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { 
+  transferRoyaltyTokensFromIPAccount, 
+  transferRoyaltyTokens, 
+  getRoyaltyTokenBalance,
+  tokensToWei,
+  weiToTokens,
+} from '@/lib/storyRoyaltyTokens';
 
 export default function MarketplacePage() {
   const { address, isConnected } = useAppKitAccount();
   const { walletProvider } = useAppKitProvider('eip155');
-  
-  const [fractions, setFractions] = useState([]); // Primary sales
-  const [listings, setListings] = useState([]); // Secondary sales
+
+  const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState('primary'); // 'primary', 'secondary'
-  const [buyModal, setBuyModal] = useState(null);
-  const [buyAmount, setBuyAmount] = useState('');
-  const [buying, setBuying] = useState(false);
+  const [filter, setFilter] = useState('all'); // 'all', 'primary', 'secondary'
+  const [purchasing, setPurchasing] = useState(null);
+  const [purchaseAmount, setPurchaseAmount] = useState({});
 
   useEffect(() => {
-    fetchData();
-  }, [address, activeTab]);
+    fetchListings();
+  }, [filter]);
 
-  const fetchData = async () => {
+  const fetchListings = async () => {
     try {
       setLoading(true);
-      
-      if (activeTab === 'primary') {
-        // Fetch fractionalized assets with available supply
-        const response = await fetch('/api/fractions?status=TRADING');
-        const data = await response.json();
-        if (data.success) {
-          setFractions(data.fractionalizations.filter(f => f.availableSupply > 0));
-        }
-      } else {
-        // Fetch secondary market listings
-        const response = await fetch('/api/marketplace/listings');
-        const data = await response.json();
-        if (data.success) {
-          setListings(data.listings);
-        }
+      const response = await fetch(`/api/marketplace/listings?type=${filter}`);
+      const data = await response.json();
+
+      if (data.success) {
+        setListings(data.listings);
       }
     } catch (error) {
-      console.error('Failed to fetch data:', error);
+      console.error('Failed to fetch listings:', error);
+      toast.error('Failed to load marketplace listings');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleBuyPrimary = async (fraction) => {
-    if (!isConnected || !walletProvider) {
+  const handleAmountChange = (listingId, value) => {
+    setPurchaseAmount(prev => ({
+      ...prev,
+      [listingId]: value,
+    }));
+  };
+
+  const handleBuyPrimary = async (listing) => {
+    if (!isConnected || !address || !walletProvider) {
       toast.error('Please connect your wallet');
       return;
     }
 
-    const amount = parseInt(buyAmount);
-    if (!amount || amount <= 0) {
-      toast.error('Please enter a valid amount');
+    const amount = parseFloat(purchaseAmount[listing.id] || 0);
+    if (amount <= 0 || amount > listing.amount) {
+      toast.error('Invalid amount');
       return;
     }
 
-    if (amount > fraction.availableSupply) {
-      toast.error('Amount exceeds available supply');
-      return;
-    }
-
-    setBuying(true);
-    const toastId = toast.loading('Processing purchase...');
+    setPurchasing(listing.id);
+    const toastId = toast.loading('Processing primary market purchase...');
 
     try {
       const provider = new BrowserProvider(walletProvider);
       const signer = await provider.getSigner();
-      
-      const managerAddress = getAddress(CONTRACTS.FractionalizationManager.toLowerCase());
-      const manager = new Contract(managerAddress, FractionalizationManagerABI, signer);
 
-      // Get asset token ID from the fraction data
-      const assetTokenId = parseInt(fraction.asset?.dippchainTokenId || 0);
-      if (!assetTokenId) {
-        toast.error('Asset token ID not found', { id: toastId });
-        setBuying(false);
+      // Step 1: Calculate payment
+      const totalCost = amount * listing.pricePerToken;
+      const totalCostWei = parseEther(totalCost.toString());
+
+      // Step 2: Buyer sends payment to seller (escrow would be better, but this works for MVP)
+      toast.loading('Processing payment...', { id: toastId });
+      
+      const tx = await signer.sendTransaction({
+        to: listing.seller.walletAddress,
+        value: totalCostWei,
+      });
+      
+      toast.loading('Waiting for payment confirmation...', { id: toastId });
+      const receipt = await tx.wait();
+
+      // Step 3: Create purchase intent in database
+      // This notifies the seller to transfer tokens
+      toast.loading('Creating purchase record...', { id: toastId });
+      
+      const response = await fetch('/api/marketplace/buy-primary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fractionalizationId: listing.fractionalizationId,
+          buyerAddress: address,
+          amount,
+          txHash: receipt.hash,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        console.error('Record purchase failed:', data);
+        const errorMsg = data.error?.message || data.error || 'Payment sent but failed to record purchase. Contact support with transaction: ' + receipt.hash;
+        toast.error(errorMsg, { 
+          id: toastId,
+          duration: 10000,
+        });
+        setPurchasing(null);
         return;
       }
 
-      // Calculate total cost
-      const pricePerToken = parseEther(fraction.pricePerToken.toString());
-      const totalCost = pricePerToken * BigInt(amount);
-
-      console.log('Purchasing:', { assetTokenId, amount, totalCost: formatEther(totalCost) });
-
-      toast.loading('Confirm transaction in wallet...', { id: toastId });
-      const tx = await manager.purchaseTokens(assetTokenId, amount, { value: totalCost });
-
-      toast.loading('Waiting for confirmation...', { id: toastId });
-      const receipt = await tx.wait();
-
-      toast.success(`Successfully purchased ${amount} tokens!`, { id: toastId });
-      setBuyModal(null);
-      setBuyAmount('');
-      fetchData(); // Refresh data
+      toast.success(
+        'Payment sent! The seller will transfer your tokens shortly. You will receive a notification when tokens are transferred.',
+        { id: toastId, duration: 8000 }
+      );
+      
+      // Refresh listings
+      fetchListings();
+      setPurchaseAmount(prev => ({ ...prev, [listing.id]: '' }));
+      
+      // Show info modal about next steps
+      toast((t) => (
+        <div style={{ maxWidth: '400px' }}>
+          <strong>🎉 Purchase Initiated!</strong>
+          <p style={{ fontSize: '13px', marginTop: '8px', marginBottom: '12px' }}>
+            Your payment of <strong>{totalCost} IP</strong> has been sent to the seller.
+            <br /><br />
+            <strong>Next Steps:</strong>
+            <br />• Seller will transfer {amount.toLocaleString()} tokens to your wallet
+            <br />• This usually happens within a few minutes
+            <br />• Check your "Revenue" page for token balance updates
+            <br />• If tokens don't arrive within 24 hours, contact support
+          </p>
+          <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+            <a
+              href={`https://aeneid.storyscan.io/tx/${receipt.hash}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                flex: 1,
+                padding: '8px 12px',
+                fontSize: '13px',
+                fontWeight: '500',
+                color: '#2563eb',
+                backgroundColor: 'white',
+                border: '1px solid #2563eb',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                textAlign: 'center',
+                textDecoration: 'none',
+              }}
+            >
+              View Transaction
+            </a>
+            <button
+              onClick={() => toast.dismiss(t.id)}
+              style={{
+                flex: 1,
+                padding: '8px 12px',
+                fontSize: '13px',
+                fontWeight: '500',
+                color: 'white',
+                backgroundColor: '#0a0a0a',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+              }}
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      ), { duration: 20000 });
     } catch (error) {
-      console.error('Purchase error:', error);
+      console.error('Primary market purchase error:', error);
       
       let errorMessage = 'Purchase failed';
-      if (error.code === 'ACTION_REJECTED') {
-        errorMessage = 'Transaction was rejected';
+      if (error.code === 'ACTION_REJECTED' || error.message?.includes('rejected')) {
+        errorMessage = 'Transaction rejected by user';
       } else if (error.message?.includes('insufficient funds')) {
-        errorMessage = 'Insufficient funds';
+        errorMessage = 'Insufficient IP tokens in wallet';
       } else if (error.shortMessage) {
         errorMessage = error.shortMessage;
+      } else if (error.message) {
+        errorMessage = error.message;
       }
       
       toast.error(errorMessage, { id: toastId });
     } finally {
-      setBuying(false);
+      setPurchasing(null);
     }
   };
 
-  const filteredFractions = fractions.filter(f =>
-    f.asset?.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    f.tokenSymbol?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const handleBuySecondary = async (listing) => {
+    if (!isConnected || !address || !walletProvider) {
+      toast.error('Please connect your wallet');
+      return;
+    }
 
-  const filteredListings = listings.filter(listing =>
-    listing.fractionalization?.asset?.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    listing.fractionalization?.tokenSymbol?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+    const amount = parseFloat(purchaseAmount[listing.id] || 0);
+    if (amount <= 0 || amount > listing.amount) {
+      toast.error('Invalid amount');
+      return;
+    }
+
+    setPurchasing(listing.id);
+    const toastId = toast.loading('Processing secondary market purchase...');
+
+    try {
+      const provider = new BrowserProvider(walletProvider);
+      const signer = await provider.getSigner();
+
+      // Step 1: Calculate payment
+      const totalCost = amount * listing.pricePerToken;
+      const totalCostWei = parseEther(totalCost.toString());
+
+      // Step 2: Buyer sends payment to contract/escrow (simplified: direct to seller)
+      toast.loading('Processing payment...', { id: toastId });
+      
+      const paymentTx = await signer.sendTransaction({
+        to: listing.seller.walletAddress,
+        value: totalCostWei,
+      });
+      await paymentTx.wait();
+
+      // Step 3: Seller transfers tokens to buyer
+      // NOTE: In production, this should be atomic (escrow or contract-based)
+      // For now, we assume seller has approved or will transfer
+      toast.loading('Waiting for token transfer...', { id: toastId });
+
+      // Check if buyer already has some tokens
+      const currentBalance = await getRoyaltyTokenBalance(
+        provider,
+        listing.tokenAddress,
+        address
+      );
+
+      // Step 4: Update database
+      toast.loading('Updating records...', { id: toastId });
+      
+      const response = await fetch('/api/marketplace/buy-secondary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          listingId: listing.id,
+          buyerAddress: address,
+          amount,
+          txHash: paymentTx.hash,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        console.error('Record purchase failed:', data);
+        const errorMsg = data.error?.message || data.error || 'Failed to record purchase';
+        toast.error(errorMsg, { id: toastId });
+        setPurchasing(null);
+        return;
+      }
+
+      toast.success('Purchase completed! Tokens will be transferred by the seller.', { id: toastId });
+      
+      // Refresh listings
+      fetchListings();
+      setPurchaseAmount(prev => ({ ...prev, [listing.id]: '' }));
+    } catch (error) {
+      console.error('Secondary market purchase error:', error);
+      
+      let errorMessage = 'Purchase failed';
+      if (error.code === 'ACTION_REJECTED') {
+        errorMessage = 'Transaction rejected by user';
+      } else if (error.message?.includes('insufficient funds')) {
+        errorMessage = 'Insufficient IP tokens';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      toast.error(errorMessage, { id: toastId });
+    } finally {
+      setPurchasing(null);
+    }
+  };
 
   return (
     <DashboardLayout title="Marketplace">
@@ -143,450 +294,288 @@ export default function MarketplacePage() {
         justifyContent: 'space-between',
         alignItems: 'center',
         marginBottom: '24px',
-        flexWrap: 'wrap',
-        gap: '16px',
       }}>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          {/* Search */}
-          <div style={{ position: 'relative', width: '280px' }}>
-            <Search size={16} color="#737373" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
-            <input
-              type="text"
-              placeholder="Search tokens..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '10px 12px 10px 36px',
-                fontSize: '14px',
-                border: '1px solid #e5e5e5',
-                borderRadius: '8px',
-                outline: 'none',
-              }}
-            />
-          </div>
-
-          {/* Tabs */}
-          <div style={{ display: 'flex', gap: '4px', backgroundColor: '#f5f5f5', padding: '4px', borderRadius: '8px' }}>
-            <button
-              onClick={() => setActiveTab('primary')}
-              style={{
-                padding: '8px 16px',
-                fontSize: '14px',
-                fontWeight: '500',
-                color: activeTab === 'primary' ? '#0a0a0a' : '#737373',
-                backgroundColor: activeTab === 'primary' ? 'white' : 'transparent',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer',
-              }}
-            >
-              Primary Sale
-            </button>
-            <button
-              onClick={() => setActiveTab('secondary')}
-              style={{
-                padding: '8px 16px',
-                fontSize: '14px',
-                fontWeight: '500',
-                color: activeTab === 'secondary' ? '#0a0a0a' : '#737373',
-                backgroundColor: activeTab === 'secondary' ? 'white' : 'transparent',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer',
-              }}
-            >
-              Secondary Market
-            </button>
-          </div>
+        <div>
+          <h1 style={{ fontSize: '24px', fontWeight: '600', color: '#0a0a0a', marginBottom: '4px' }}>
+            Royalty Token Marketplace
+          </h1>
+          <p style={{ fontSize: '14px', color: '#737373' }}>
+            Buy fractional ownership of IP assets using Story Protocol's native tokens
+          </p>
         </div>
-
-        <Link href="/dashboard/fractions/create">
-          <button style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '10px 20px',
-            fontSize: '14px',
-            fontWeight: '500',
-            color: 'white',
-            backgroundColor: '#0a0a0a',
-            border: 'none',
-            borderRadius: '8px',
-            cursor: 'pointer',
-          }}>
-            <Tag size={18} />
-            Fractionalize Asset
-          </button>
-        </Link>
       </div>
 
-      {/* Content Grid */}
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: '60px', color: '#737373' }}>
-          <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto 12px' }} />
-          Loading marketplace...
-        </div>
-      ) : activeTab === 'primary' ? (
-        // Primary Sales Grid
-        filteredFractions.length === 0 ? (
-          <div style={{
-            textAlign: 'center',
-            padding: '60px 20px',
-            backgroundColor: 'white',
-            border: '1px solid #e5e5e5',
-            borderRadius: '12px',
-          }}>
-            <div style={{
-              width: '64px',
-              height: '64px',
-              margin: '0 auto 16px',
-              borderRadius: '50%',
-              backgroundColor: '#f5f5f5',
+      {/* Filter Tabs */}
+      <div style={{
+        display: 'flex',
+        gap: '8px',
+        marginBottom: '24px',
+        borderBottom: '1px solid #e5e5e5',
+      }}>
+        {[
+          { value: 'all', label: 'All Markets', icon: ShoppingCart },
+          { value: 'primary', label: 'Primary Market', icon: TrendingUp },
+          { value: 'secondary', label: 'Secondary Market', icon: Users },
+        ].map(tab => (
+          <button
+            key={tab.value}
+            onClick={() => setFilter(tab.value)}
+            style={{
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
-            }}>
-              <Store size={28} color="#737373" />
-            </div>
-            <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#0a0a0a', marginBottom: '8px' }}>
-              No tokens available
-            </h3>
-            <p style={{ fontSize: '14px', color: '#737373', marginBottom: '20px' }}>
-              No fractionalized assets are currently for sale
-            </p>
-            <Link href="/dashboard/fractions/create">
-              <button style={{
-                padding: '10px 20px',
-                fontSize: '14px',
-                fontWeight: '500',
-                color: 'white',
-                backgroundColor: '#0a0a0a',
-                border: 'none',
-                borderRadius: '8px',
-                cursor: 'pointer',
-              }}>
-                Fractionalize an Asset
-              </button>
-            </Link>
-          </div>
-        ) : (
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-            gap: '20px',
-          }}>
-            {filteredFractions.map((fraction) => (
+              gap: '8px',
+              padding: '12px 20px',
+              fontSize: '14px',
+              fontWeight: '500',
+              color: filter === tab.value ? '#0a0a0a' : '#737373',
+              backgroundColor: 'transparent',
+              border: 'none',
+              borderBottom: filter === tab.value ? '2px solid #0a0a0a' : '2px solid transparent',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+            }}
+          >
+            <tab.icon size={16} />
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Listings Grid */}
+      {loading ? (
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          padding: '80px',
+        }}>
+          <Loader2 size={32} className="animate-spin" color="#737373" />
+        </div>
+      ) : listings.length === 0 ? (
+        <div style={{
+          textAlign: 'center',
+          padding: '80px',
+          backgroundColor: 'white',
+          border: '1px solid #e5e5e5',
+          borderRadius: '12px',
+        }}>
+          <ShoppingCart size={48} color="#d4d4d4" style={{ marginBottom: '16px' }} />
+          <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#0a0a0a', marginBottom: '8px' }}>
+            No listings available
+          </h3>
+          <p style={{ fontSize: '14px', color: '#737373' }}>
+            Check back later for new fractional ownership opportunities
+          </p>
+        </div>
+      ) : (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+          gap: '24px',
+        }}>
+          {listings.map((listing) => {
+            const amount = parseFloat(purchaseAmount[listing.id] || 0);
+            const totalCost = amount * listing.pricePerToken;
+            const isPrimary = listing.type === 'PRIMARY';
+
+            return (
               <div
-                key={fraction.id}
+                key={listing.id}
                 style={{
                   backgroundColor: 'white',
                   border: '1px solid #e5e5e5',
                   borderRadius: '12px',
                   overflow: 'hidden',
-                  transition: 'box-shadow 0.2s',
+                  transition: 'all 0.2s',
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.08)'}
-                onMouseLeave={(e) => e.currentTarget.style.boxShadow = 'none'}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = '#0a0a0a';
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = '#e5e5e5';
+                  e.currentTarget.style.transform = 'translateY(0)';
+                }}
               >
-                {/* Thumbnail */}
+                {/* Asset Image */}
                 <div style={{
-                  height: '160px',
+                  height: '180px',
                   backgroundColor: '#f5f5f5',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
+                  overflow: 'hidden',
                 }}>
-                  {fraction.asset?.pinataUrl && fraction.asset?.assetType === 'IMAGE' ? (
+                  {listing.asset.thumbnailUrl ? (
                     <img
-                      src={fraction.asset.pinataUrl}
-                      alt=""
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      src={listing.asset.thumbnailUrl}
+                      alt={listing.asset.title}
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                      }}
                     />
                   ) : (
-                    <Image size={40} color="#d4d4d4" />
+                    <ShoppingCart size={48} color="#d4d4d4" />
                   )}
                 </div>
 
                 {/* Content */}
                 <div style={{ padding: '20px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                    <span style={{
-                      fontSize: '16px',
-                      fontWeight: '600',
-                      color: '#0a0a0a',
-                    }}>
-                      ${fraction.tokenSymbol}
-                    </span>
-                    <span style={{
-                      fontSize: '11px',
-                      padding: '3px 8px',
-                      backgroundColor: '#dcfce7',
-                      color: '#16a34a',
-                      borderRadius: '4px',
-                      fontWeight: '500',
-                    }}>
-                      PRIMARY
-                    </span>
-                  </div>
-                  
-                  <p style={{
-                    fontSize: '14px',
-                    color: '#525252',
-                    marginBottom: '4px',
+                  {/* Market Type Badge */}
+                  <div style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '4px 10px',
+                    backgroundColor: isPrimary ? '#eff6ff' : '#fefce8',
+                    color: isPrimary ? '#1e40af' : '#854d0e',
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    borderRadius: '6px',
+                    marginBottom: '12px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
                   }}>
-                    {fraction.tokenName}
-                  </p>
-                  
-                  <p style={{
-                    fontSize: '13px',
-                    color: '#737373',
-                    marginBottom: '16px',
+                    {isPrimary ? <TrendingUp size={12} /> : <Users size={12} />}
+                    {isPrimary ? 'Primary Market' : 'Secondary Market'}
+                  </div>
+
+                  {/* Title */}
+                  <h3 style={{
+                    fontSize: '16px',
+                    fontWeight: '600',
+                    color: '#0a0a0a',
+                    marginBottom: '8px',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
                   }}>
-                    {fraction.asset?.title}
+                    {listing.asset.title}
+                  </h3>
+
+                  {/* Seller */}
+                  <p style={{ fontSize: '13px', color: '#737373', marginBottom: '16px' }}>
+                    by <strong>{listing.seller.displayName || 'Creator'}</strong>
                   </p>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                  {/* Stats */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: '12px',
+                    padding: '12px',
+                    backgroundColor: '#f5f5f5',
+                    borderRadius: '8px',
+                    marginBottom: '16px',
+                  }}>
                     <div>
-                      <div style={{ fontSize: '12px', color: '#737373', marginBottom: '4px' }}>Available</div>
-                      <div style={{ fontSize: '15px', fontWeight: '600', color: '#0a0a0a' }}>
-                        {formatNumber(fraction.availableSupply)} / {formatNumber(fraction.totalSupply)}
-                      </div>
+                      <p style={{ fontSize: '11px', color: '#737373', marginBottom: '2px' }}>Available</p>
+                      <p style={{ fontSize: '14px', fontWeight: '600', color: '#0a0a0a' }}>
+                        {listing.amount.toLocaleString()}
+                      </p>
                     </div>
                     <div>
-                      <div style={{ fontSize: '12px', color: '#737373', marginBottom: '4px' }}>Price</div>
-                      <div style={{ fontSize: '15px', fontWeight: '600', color: '#0a0a0a' }}>
-                        {fraction.pricePerToken} {fraction.currency}
-                      </div>
+                      <p style={{ fontSize: '11px', color: '#737373', marginBottom: '2px' }}>Price/Token</p>
+                      <p style={{ fontSize: '14px', fontWeight: '600', color: '#0a0a0a' }}>
+                        {listing.pricePerToken} {listing.currency}
+                      </p>
                     </div>
                   </div>
 
-                  {/* Progress bar */}
-                  <div style={{ marginBottom: '16px' }}>
-                    <div style={{
-                      height: '6px',
-                      backgroundColor: '#f5f5f5',
-                      borderRadius: '3px',
-                      overflow: 'hidden',
+                  {/* Purchase Input */}
+                  <div style={{ marginBottom: '12px' }}>
+                    <label style={{
+                      display: 'block',
+                      fontSize: '12px',
+                      fontWeight: '500',
+                      color: '#737373',
+                      marginBottom: '6px',
                     }}>
-                      <div style={{
-                        height: '100%',
-                        width: `${((fraction.totalSupply - fraction.availableSupply) / fraction.totalSupply) * 100}%`,
-                        backgroundColor: '#16a34a',
-                        borderRadius: '3px',
-                      }} />
-                    </div>
-                    <div style={{ fontSize: '11px', color: '#737373', marginTop: '4px' }}>
-                      {Math.round(((fraction.totalSupply - fraction.availableSupply) / fraction.totalSupply) * 100)}% sold
-                    </div>
+                      Amount to buy
+                    </label>
+                    <input
+                      type="number"
+                      value={purchaseAmount[listing.id] || ''}
+                      onChange={(e) => handleAmountChange(listing.id, e.target.value)}
+                      placeholder="0"
+                      min="1"
+                      max={listing.amount}
+                      step="1"
+                      disabled={purchasing === listing.id}
+                      style={{
+                        width: '100%',
+                        padding: '10px',
+                        fontSize: '14px',
+                        border: '1px solid #e5e5e5',
+                        borderRadius: '6px',
+                      }}
+                    />
+                    {amount > 0 && (
+                      <p style={{ fontSize: '12px', color: '#737373', marginTop: '6px' }}>
+                        Total: <strong>{totalCost.toFixed(6)} {listing.currency}</strong>
+                      </p>
+                    )}
                   </div>
 
+                  {/* Buy Button */}
                   <button
-                    onClick={() => setBuyModal(fraction)}
+                    onClick={() => isPrimary ? handleBuyPrimary(listing) : handleBuySecondary(listing)}
+                    disabled={purchasing === listing.id || !amount || amount > listing.amount}
                     style={{
                       width: '100%',
                       padding: '12px',
                       fontSize: '14px',
                       fontWeight: '500',
                       color: 'white',
-                      backgroundColor: '#0a0a0a',
+                      backgroundColor: (purchasing === listing.id || !amount || amount > listing.amount) ? '#a3a3a3' : '#0a0a0a',
                       border: 'none',
                       borderRadius: '8px',
-                      cursor: 'pointer',
+                      cursor: (purchasing === listing.id || !amount || amount > listing.amount) ? 'not-allowed' : 'pointer',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       gap: '8px',
                     }}
                   >
-                    <ShoppingCart size={16} />
-                    Buy Tokens
+                    {purchasing === listing.id ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <ShoppingCart size={16} />
+                        Buy Tokens
+                      </>
+                    )}
                   </button>
+
+                  {/* Token Link */}
+                  <a
+                    href={`https://aeneid.storyscan.io/address/${listing.tokenAddress}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px',
+                      marginTop: '12px',
+                      fontSize: '12px',
+                      color: '#2563eb',
+                      textDecoration: 'underline',
+                    }}
+                  >
+                    View Royalty Token <ExternalLink size={12} />
+                  </a>
                 </div>
               </div>
-            ))}
-          </div>
-        )
-      ) : (
-        // Secondary Market - Coming Soon
-        <div style={{
-          textAlign: 'center',
-          padding: '60px 20px',
-          backgroundColor: 'white',
-          border: '1px solid #e5e5e5',
-          borderRadius: '12px',
-        }}>
-          <div style={{
-            width: '64px',
-            height: '64px',
-            margin: '0 auto 16px',
-            borderRadius: '50%',
-            backgroundColor: '#f5f5f5',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}>
-            <TrendingUp size={28} color="#737373" />
-          </div>
-          <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#0a0a0a', marginBottom: '8px' }}>
-            Secondary Market Coming Soon
-          </h3>
-          <p style={{ fontSize: '14px', color: '#737373', marginBottom: '20px' }}>
-            Token holders will soon be able to list their tokens for resale
-          </p>
-        </div>
-      )}
-
-      {/* Buy Modal */}
-      {buyModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000,
-        }}>
-          <div style={{
-            backgroundColor: 'white',
-            borderRadius: '16px',
-            padding: '24px',
-            width: '100%',
-            maxWidth: '420px',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h2 style={{ fontSize: '18px', fontWeight: '600', color: '#0a0a0a' }}>
-                Buy ${buyModal.tokenSymbol}
-              </h2>
-              <button
-                onClick={() => { setBuyModal(null); setBuyAmount(''); }}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}
-              >
-                <X size={20} color="#737373" />
-              </button>
-            </div>
-
-            <div style={{
-              padding: '16px',
-              backgroundColor: '#f5f5f5',
-              borderRadius: '8px',
-              marginBottom: '20px',
-            }}>
-              <div style={{ fontSize: '14px', fontWeight: '500', color: '#0a0a0a', marginBottom: '4px' }}>
-                {buyModal.tokenName}
-              </div>
-              <div style={{ fontSize: '13px', color: '#737373' }}>
-                {buyModal.asset?.title}
-              </div>
-            </div>
-
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: '#0a0a0a', marginBottom: '8px' }}>
-                Amount to Buy
-              </label>
-              <input
-                type="number"
-                value={buyAmount}
-                onChange={(e) => setBuyAmount(e.target.value)}
-                placeholder="Enter amount"
-                min="1"
-                max={buyModal.availableSupply}
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  fontSize: '14px',
-                  border: '1px solid #e5e5e5',
-                  borderRadius: '8px',
-                }}
-              />
-              <div style={{ fontSize: '12px', color: '#737373', marginTop: '6px' }}>
-                Available: {formatNumber(buyModal.availableSupply)} tokens
-              </div>
-            </div>
-
-            {buyAmount && parseInt(buyAmount) > 0 && (
-              <div style={{
-                padding: '16px',
-                backgroundColor: '#fafafa',
-                borderRadius: '8px',
-                marginBottom: '20px',
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <span style={{ fontSize: '13px', color: '#737373' }}>Price per token</span>
-                  <span style={{ fontSize: '13px', color: '#0a0a0a' }}>{buyModal.pricePerToken} {buyModal.currency}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <span style={{ fontSize: '13px', color: '#737373' }}>Quantity</span>
-                  <span style={{ fontSize: '13px', color: '#0a0a0a' }}>{parseInt(buyAmount).toLocaleString()}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #e5e5e5', paddingTop: '8px', marginTop: '8px' }}>
-                  <span style={{ fontSize: '14px', fontWeight: '600', color: '#0a0a0a' }}>Total Cost</span>
-                  <span style={{ fontSize: '16px', fontWeight: '600', color: '#16a34a' }}>
-                    {(parseFloat(buyModal.pricePerToken) * parseInt(buyAmount)).toFixed(4)} {buyModal.currency}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <button
-                onClick={() => { setBuyModal(null); setBuyAmount(''); }}
-                disabled={buying}
-                style={{
-                  flex: 1,
-                  padding: '12px',
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  color: '#525252',
-                  backgroundColor: 'white',
-                  border: '1px solid #e5e5e5',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => handleBuyPrimary(buyModal)}
-                disabled={buying || !buyAmount || parseInt(buyAmount) <= 0}
-                style={{
-                  flex: 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
-                  padding: '12px',
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  color: 'white',
-                  backgroundColor: buying ? '#a3a3a3' : '#0a0a0a',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: buying ? 'not-allowed' : 'pointer',
-                }}
-              >
-                {buying ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" /> Processing...
-                  </>
-                ) : (
-                  <>
-                    <ShoppingCart size={16} /> Buy Now
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
+            );
+          })}
         </div>
       )}
     </DashboardLayout>
   );
 }
-

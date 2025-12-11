@@ -1,3 +1,5 @@
+'use client';
+
 import Link from 'next/link';
 import Image from 'next/image';
 import { useState } from 'react';
@@ -35,7 +37,6 @@ function Navbar() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
             <a href="#features" style={{ fontSize: '14px', color: '#525252', textDecoration: 'none' }}>Features</a>
             <a href="#how-it-works" style={{ fontSize: '14px', color: '#525252', textDecoration: 'none' }}>How it Works</a>
-            <a href="#pricing" style={{ fontSize: '14px', color: '#525252', textDecoration: 'none' }}>Pricing</a>
           </div>
 
           {/* CTA */}
@@ -88,7 +89,6 @@ function Footer() {
         {/* Links */}
         <div style={{ display: 'flex', gap: '24px', fontSize: '13px', color: '#737373' }}>
           <a href="#features" style={{ color: 'inherit', textDecoration: 'none' }}>Features</a>
-          <a href="#pricing" style={{ color: 'inherit', textDecoration: 'none' }}>Pricing</a>
           <Link href="/dashboard" style={{ color: 'inherit', textDecoration: 'none' }}>Dashboard</Link>
         </div>
 

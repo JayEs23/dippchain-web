@@ -1,17 +1,14 @@
 // Asset Upload Page
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/router';
-import { useAppKit, useAppKitAccount } from '@reown/appkit/react';
-import { useAppKitProvider } from '@reown/appkit/react';
-import { BrowserProvider, Contract, getAddress } from 'ethers';
+import { useAccount, useWalletClient } from 'wagmi';
 import toast from 'react-hot-toast';
+import confetti from 'canvas-confetti';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import FileDropzone from '@/components/upload/FileDropzone';
 import { Upload, Loader2, Check, AlertCircle, ExternalLink } from 'lucide-react';
 import { generateWatermarkId, generateContentHash, formatFileSize } from '@/lib/utils';
 import { embedImageWatermark, generateMetadata, createThumbnail } from '@/lib/watermark';
-import { CONTRACTS } from '@/contracts/addresses';
-import DippChainRegistryABI from '@/contracts/abis/DippChainRegistry.json';
 
 const STEPS = [
   { id: 'select', label: 'Select File' },
@@ -22,8 +19,8 @@ const STEPS = [
 
 export default function UploadPage() {
   const router = useRouter();
-  const { address, isConnected } = useAppKitAccount();
-  const { walletProvider } = useAppKitProvider('eip155');
+  const { address, isConnected } = useAccount();
+  const { data: walletClient } = useWalletClient();
   
   const [currentStep, setCurrentStep] = useState(0);
   const [file, setFile] = useState(null);
@@ -37,14 +34,63 @@ export default function UploadPage() {
     tags: '',
     visibility: 'PRIVATE',
     enableWatermark: true,
-    registerOnChain: true,
-    registerStoryProtocol: true, // Register on Story Protocol
+    registerStoryProtocol: true, // Register on Story Protocol (SPG handles NFT minting)
   });
   
   // Upload results
   const [uploadResult, setUploadResult] = useState(null);
-  const [registrationResult, setRegistrationResult] = useState(null);
   const [storyProtocolResult, setStoryProtocolResult] = useState(null);
+  
+  // Progress tracking
+  const [progressSteps, setProgressSteps] = useState([
+    { id: 'watermark', label: 'Generating watermark', status: 'pending' },
+    { id: 'ipfs', label: 'Uploading to IPFS', status: 'pending' },
+    { id: 'thumbnail', label: 'Creating thumbnail', status: 'pending' },
+    { id: 'metadata', label: 'Uploading metadata', status: 'pending' },
+    { id: 'database', label: 'Saving to database', status: 'pending' },
+    { id: 'story', label: 'Registering on Story Protocol (SPG)', status: 'pending' },
+  ]);
+
+  const updateProgressStep = (stepId, status, message = null) => {
+    setProgressSteps(prev => prev.map(step => 
+      step.id === stepId 
+        ? { ...step, status, message }
+        : step
+    ));
+  };
+
+  // 🎉 Confetti celebration function
+  const triggerConfetti = () => {
+    const duration = 3000; // 3 seconds
+    const animationEnd = Date.now() + duration;
+    const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0 };
+
+    function randomInRange(min, max) {
+      return Math.random() * (max - min) + min;
+    }
+
+    const interval = setInterval(function() {
+      const timeLeft = animationEnd - Date.now();
+
+      if (timeLeft <= 0) {
+        return clearInterval(interval);
+      }
+
+      const particleCount = 50 * (timeLeft / duration);
+      
+      // Launch confetti from both sides
+      confetti({
+        ...defaults,
+        particleCount,
+        origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 }
+      });
+      confetti({
+        ...defaults,
+        particleCount,
+        origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 }
+      });
+    }, 250);
+  };
 
   const handleFileSelect = useCallback((selectedFile, type) => {
     setFile(selectedFile);
@@ -61,8 +107,16 @@ export default function UploadPage() {
     setAssetType(null);
     setCurrentStep(0);
     setUploadResult(null);
-    setRegistrationResult(null);
     setStoryProtocolResult(null);
+    // Reset progress steps
+    setProgressSteps([
+      { id: 'watermark', label: 'Generating watermark', status: 'pending' },
+      { id: 'ipfs', label: 'Uploading to IPFS', status: 'pending' },
+      { id: 'thumbnail', label: 'Creating thumbnail', status: 'pending' },
+      { id: 'metadata', label: 'Uploading metadata', status: 'pending' },
+      { id: 'database', label: 'Saving Asset Records Off-Chain', status: 'pending' },
+      { id: 'story', label: 'Registering on Story Protocol (SPG)', status: 'pending' },
+    ]);
   }, []);
 
   const handleInputChange = (e) => {
@@ -86,16 +140,18 @@ export default function UploadPage() {
 
     setProcessing(true);
     setCurrentStep(2);
-    const toastId = toast.loading('Processing your asset...');
 
     // Step 1: Generate watermark ID and content hash
     let watermarkId, contentHash;
     try {
+      updateProgressStep('watermark', 'processing');
       watermarkId = generateWatermarkId();
       contentHash = await generateContentHash(file);
+      updateProgressStep('watermark', 'completed', 'Watermark ID generated');
     } catch (err) {
       console.error('Hash generation error:', err);
-      toast.error('Failed to process file. Please try again.', { id: toastId });
+      updateProgressStep('watermark', 'error', 'Failed to generate watermark');
+      toast.error('Failed to process file. Please try again.');
       setCurrentStep(1);
       setProcessing(false);
       return;
@@ -105,30 +161,30 @@ export default function UploadPage() {
     let processedFile = file;
     if (formData.enableWatermark && assetType === 'IMAGE') {
       try {
-        toast.loading('Embedding watermark...', { id: toastId });
         const watermarkResult = await embedImageWatermark(file, watermarkId);
         processedFile = watermarkResult.file;
       } catch (err) {
         console.error('Watermark error:', err);
         // Continue without watermark - non-critical error
-        toast.loading('Watermark skipped, continuing upload...', { id: toastId });
       }
     }
 
     // Step 3: Create thumbnail
     let thumbnail = null;
     try {
-      toast.loading('Creating thumbnail...', { id: toastId });
+      updateProgressStep('thumbnail', 'processing');
       thumbnail = await createThumbnail(processedFile);
+      updateProgressStep('thumbnail', 'completed', 'Thumbnail created');
     } catch (err) {
       console.error('Thumbnail error:', err);
+      updateProgressStep('thumbnail', 'completed', 'Thumbnail skipped');
       // Continue without thumbnail - non-critical error
     }
 
     // Step 4: Upload to Pinata
     let uploadData;
     try {
-      toast.loading('Uploading to IPFS...', { id: toastId });
+      updateProgressStep('ipfs', 'processing');
       
       const uploadFormData = new FormData();
       uploadFormData.append('file', processedFile);
@@ -147,16 +203,20 @@ export default function UploadPage() {
       const uploadResult = await uploadResponse.json();
       
       if (!uploadResponse.ok || !uploadResult.success) {
-        toast.error(uploadResult.details || uploadResult.error || 'IPFS upload failed. Check your Pinata credentials.', { id: toastId });
+        const errorMsg = uploadResult.error?.message || uploadResult.details || uploadResult.error || 'IPFS upload failed. Check your Pinata credentials.';
+        updateProgressStep('ipfs', 'error', errorMsg);
+        toast.error(errorMsg);
         setCurrentStep(1);
         setProcessing(false);
         return;
       }
 
       uploadData = uploadResult;
+      updateProgressStep('ipfs', 'completed', `Uploaded to IPFS (${uploadData.cid.slice(0, 8)}...)`);
     } catch (err) {
       console.error('Upload error:', err);
-      toast.error('Failed to upload to IPFS. Please check your connection and try again.', { id: toastId });
+      updateProgressStep('ipfs', 'error', 'Network error');
+      toast.error('Failed to upload to IPFS. Please check your connection and try again.');
       setCurrentStep(1);
       setProcessing(false);
       return;
@@ -184,23 +244,24 @@ export default function UploadPage() {
       }
     }
 
-    // Step 6: Generate and upload metadata
-    let metadataData = null;
-    try {
-      toast.loading('Uploading metadata...', { id: toastId });
-      const metadata = await generateMetadata(processedFile, {
-        title: formData.title,
-        description: formData.description,
-        creator: formData.title,
-        creatorAddress: address,
-        tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean),
-        watermarkId,
-      });
-      metadata.image = uploadData.url;
-      if (metadata.ipMetadata) {
-        metadata.ipMetadata.ipMetadataURI = uploadData.url;
-        metadata.ipMetadata.nftMetadataURI = uploadData.url;
-      }
+      // Step 6: Generate and upload metadata (IPA Metadata Standard)
+      let metadataData = null;
+      try {
+        updateProgressStep('metadata', 'processing');
+        // ✅ Generate metadata following IPA Metadata Standard
+        const metadata = await generateMetadata(processedFile, {
+          title: formData.title,
+          description: formData.description,
+          creator: formData.title,
+          creatorAddress: address,
+          tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean),
+          watermarkId,
+          uploadUrl: uploadData.url, // Pass IPFS URL for image/mediaUrl fields
+        });
+        
+        // Ensure image and mediaUrl are set (should already be set by generateMetadata)
+        if (!metadata.image) metadata.image = uploadData.url;
+        if (!metadata.mediaUrl) metadata.mediaUrl = uploadData.url;
 
       const metadataResponse = await fetch('/api/assets/metadata', {
         method: 'POST',
@@ -210,16 +271,20 @@ export default function UploadPage() {
 
       if (metadataResponse.ok) {
         metadataData = await metadataResponse.json();
+        updateProgressStep('metadata', 'completed', 'Metadata uploaded');
+      } else {
+        updateProgressStep('metadata', 'completed', 'Metadata skipped');
       }
     } catch (err) {
       console.error('Metadata upload error:', err);
+      updateProgressStep('metadata', 'completed', 'Metadata skipped');
       // Continue without metadata - non-critical
     }
 
     // Step 7: Create asset in database
     let asset;
     try {
-      toast.loading('Saving asset...', { id: toastId });
+      updateProgressStep('database', 'processing');
       const createResponse = await fetch('/api/assets/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -244,23 +309,64 @@ export default function UploadPage() {
 
       const createResult = await createResponse.json();
       
+      console.log('📥 Database creation response:', {
+        ok: createResponse.ok,
+        success: createResult.success,
+        hasData: !!createResult.data,
+        hasAsset: !!createResult.data?.asset,
+        assetId: createResult.data?.asset?.id,
+      });
+      
       if (!createResponse.ok || !createResult.success) {
-        toast.error(createResult.error || 'Failed to save asset to database', { id: toastId });
+        const errorMsg = createResult.error?.message || createResult.error || 'Failed to save asset to database';
+        updateProgressStep('database', 'error', errorMsg);
+        toast.error(errorMsg);
         setCurrentStep(1);
         setProcessing(false);
         return;
       }
 
-      asset = createResult.asset;
+      // ✅ FIX: Access asset from createResult.data.asset (not createResult.asset)
+      asset = createResult.data?.asset;
+      
+      if (!asset) {
+        console.error('❌ Asset not found in response:', createResult);
+        updateProgressStep('database', 'error', 'Asset data missing from response');
+        toast.error('Failed to retrieve asset data');
+        setCurrentStep(1);
+        setProcessing(false);
+        return;
+      }
+      
+      console.log('💾 Asset received from database:', {
+        id: asset.id,
+        title: asset.title,
+        hasWatermarkId: !!asset.watermarkId,
+        hasContentHash: !!asset.contentHash,
+      });
+      
+      updateProgressStep('database', 'completed', 'Asset saved successfully');
     } catch (err) {
       console.error('Database save error:', err);
-      toast.error('Failed to save asset. Please try again.', { id: toastId });
+      updateProgressStep('database', 'error', 'Database error');
+      toast.error('Failed to save asset. Please try again.');
       setCurrentStep(1);
       setProcessing(false);
       return;
     }
 
-    // Success!
+    // ✅ CRITICAL: Validate asset object before proceeding
+    if (!asset || !asset.id) {
+      console.error('❌ CRITICAL: Asset object is invalid!', { asset });
+      updateProgressStep('database', 'error', 'Asset ID missing');
+      toast.error('Failed to create asset: ID not generated');
+      setProcessing(false);
+      return;
+    }
+
+    console.log('✅ Asset created successfully with ID:', asset.id);
+
+    // Success! Store asset data in state AND localStorage for resilience
     setUploadResult({
       asset,
       uploadData,
@@ -270,16 +376,79 @@ export default function UploadPage() {
       contentHash,
     });
 
-    toast.success('Asset uploaded successfully!', { id: toastId });
-    setProcessing(false);
+    // ✅ CRITICAL: Store asset ID in localStorage as backup
+    // This prevents ID loss on page refresh or state issues
+    try {
+      localStorage.setItem('dippchain_current_asset', JSON.stringify({
+        id: asset.id,
+        watermarkId: watermarkId, // Use the local variable, not asset.watermarkId
+        contentHash: contentHash, // Use the local variable, not asset.contentHash
+        timestamp: Date.now(),
+      }));
+      console.log('💾 Asset ID backed up to localStorage:', asset.id);
+    } catch (storageErr) {
+      console.warn('⚠️ Failed to save to localStorage:', storageErr);
+      // Don't fail the whole process if localStorage fails
+    }
 
-    // Move to registration step if enabled
-    if (formData.registerOnChain) {
+    toast.success('Asset uploaded successfully!');
+
+    // ✅ BUILDATHON SIMPLIFIED FLOW: Skip DippChain Registry, use SPG only
+    // Go directly to Story Protocol registration
+    if (formData.registerStoryProtocol && isConnected) {
+      console.log('🌐 Auto-starting Story Protocol SPG registration...');
+      // Move to registration step
       setCurrentStep(3);
+      // Keep processing state active for registration
+      // Small delay to ensure state and UI are updated
+      setTimeout(() => {
+        // Skip DippChain Registry, go straight to Story Protocol SPG
+        // SPG will mint NFT + register IP + attach license in ONE transaction
+        registerOnStoryProtocolSPG(asset.id);
+      }, 500);
+    } else {
+      // Only stop processing if we're not auto-registering
+      setProcessing(false);
+      // Move to registration step if enabled (but not auto-starting)
+      if (formData.registerStoryProtocol) {
+        setCurrentStep(3);
+      }
     }
   };
 
-  const registerOnChain = async () => {
+  /**
+   * ❌ DEPRECATED: DippChain Registry registration
+   * SPG handles NFT minting internally - this function is no longer needed
+   * Kept for reference only - will be removed in future cleanup
+   */
+  const registerOnChain_DEPRECATED = async (assetId) => {
+    // ✅ CRITICAL: Validate and recover asset ID
+    if (!assetId) {
+      // Try to recover from uploadResult
+      assetId = uploadResult?.asset?.id;
+    }
+    
+    if (!assetId) {
+      // Try to recover from localStorage
+      const storedAsset = localStorage.getItem('dippchain_current_asset');
+      if (storedAsset) {
+        try {
+          const parsed = JSON.parse(storedAsset);
+          assetId = parsed.id;
+          console.log('📦 Recovered asset ID from localStorage:', assetId);
+        } catch (e) {
+          console.error('Failed to parse stored asset:', e);
+        }
+      }
+    }
+
+    if (!assetId) {
+      toast.error('Asset ID not available. Please complete upload first.');
+      return;
+    }
+
+    console.log('🔗 Starting on-chain registration for asset:', assetId);
+    
     if (!uploadResult) {
       toast.error('Please complete the upload step first');
       return;
@@ -291,7 +460,7 @@ export default function UploadPage() {
     }
 
     setProcessing(true);
-    const toastId = toast.loading('Registering on blockchain...');
+    updateProgressStep('onchain', 'processing');
 
     // Step 1: Initialize provider and signer
     let provider, signer;
@@ -300,7 +469,8 @@ export default function UploadPage() {
       signer = await provider.getSigner();
     } catch (err) {
       console.error('Wallet connection error:', err);
-      toast.error('Failed to connect to wallet. Please try reconnecting.', { id: toastId });
+      updateProgressStep('onchain', 'error', 'Wallet connection failed');
+      toast.error('Failed to connect to wallet. Please try reconnecting.');
       setProcessing(false);
       return;
     }
@@ -317,7 +487,8 @@ export default function UploadPage() {
       );
     } catch (err) {
       console.error('Contract initialization error:', err);
-      toast.error('Failed to initialize contract. Please refresh and try again.', { id: toastId });
+      updateProgressStep('onchain', 'error', 'Contract initialization failed');
+      toast.error('Failed to initialize contract. Please refresh and try again.');
       setProcessing(false);
       return;
     }
@@ -332,7 +503,7 @@ export default function UploadPage() {
       
       console.log('Calling registerAsset with:', { contentHash, metadataUri, watermarkId });
 
-      toast.loading('Please confirm the transaction in your wallet...', { id: toastId });
+      updateProgressStep('onchain', 'processing', 'Please confirm transaction in wallet...');
       
       const tx = await registry.registerAsset(
         contentHash,    // 1st param: contentHash (string)
@@ -340,7 +511,7 @@ export default function UploadPage() {
         watermarkId     // 3rd param: watermarkId (string)
       );
 
-      toast.loading('Transaction submitted! Waiting for confirmation...', { id: toastId });
+      updateProgressStep('onchain', 'processing', 'Waiting for confirmation...');
       receipt = await tx.wait();
       
       // Debug: Log all receipt data
@@ -432,25 +603,10 @@ export default function UploadPage() {
         errorMessage = err.shortMessage;
       }
       
-      toast.error(errorMessage, { id: toastId });
+      updateProgressStep('onchain', 'error', errorMessage);
+      toast.error(errorMessage);
       setProcessing(false);
       return;
-    }
-
-    // Step 4: Update database (non-critical)
-    try {
-      await fetch('/api/assets/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          assetId: uploadResult.asset.id,
-          txHash: receipt.hash,
-          tokenId,
-        }),
-      });
-    } catch (err) {
-      console.error('Database update error:', err);
-      // Continue - transaction was successful
     }
 
     setRegistrationResult({
@@ -458,39 +614,130 @@ export default function UploadPage() {
       tokenId,
       blockNumber: receipt.blockNumber,
     });
+    
+    updateProgressStep('onchain', 'completed', `Token ID: #${tokenId}`);
+    toast.success('Asset registered on-chain!');
 
-    toast.success('Asset registered on-chain!', { id: toastId });
+    // Step 4: Update database with token ID and transaction hash
+    // CRITICAL: Must complete BEFORE Story Protocol registration
+    // Uses retry logic to ensure data is saved even if first attempt fails
+    let databaseUpdateSuccess = false;
+    const maxRetries = 3;
+    
+    // ✅ USE THE ASSET ID THAT WAS PASSED IN (no more searching!)
+    console.log('💾 Updating database for asset:', assetId, 'with tokenId:', tokenId);
+    
+    if (assetId) {
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          console.log(`📝 Database update attempt ${attempt}/${maxRetries} for asset ${assetId}...`);
+          
+          const updateResponse = await fetch('/api/assets/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              assetId: assetId, // ✅ Use the passed assetId
+              txHash: receipt.hash,
+              tokenId,
+            }),
+          });
 
-    // Step 5: Register on Story Protocol if enabled
-    if (formData.registerStoryProtocol && tokenId) {
-      await registerOnStoryProtocol(tokenId);
+          if (!updateResponse.ok) {
+            const errorText = await updateResponse.text();
+            console.error(`Database update attempt ${attempt} failed:`, errorText);
+            
+            if (attempt === maxRetries) {
+              toast.error(`Failed to save token ID to database after ${maxRetries} attempts`);
+            }
+          } else {
+            const updateData = await updateResponse.json();
+            console.log('✅ Database updated successfully on attempt', attempt, ':', updateData);
+            databaseUpdateSuccess = true;
+            
+            // Update local uploadResult with the new data
+            setUploadResult(prev => ({
+              ...prev,
+              asset: {
+                ...prev.asset,
+                id: assetId, // ✅ Use the passed assetId
+                dippchainTokenId: tokenId?.toString(),
+                dippchainTxHash: receipt.hash,
+                registeredOnChain: true,
+                status: 'REGISTERED',
+              },
+            }));
+            
+            // Success! Break out of retry loop
+            break;
+          }
+        } catch (err) {
+          console.error(`Database update attempt ${attempt} error:`, err);
+          
+          if (attempt === maxRetries) {
+            toast.error('Database update failed: ' + err.message);
+          } else {
+            // Wait before retry (exponential backoff)
+            await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+          }
+        }
+      }
+    } else {
+      console.error('❌ CRITICAL: Asset ID is missing - cannot update database!');
+      toast.error('Cannot update database: asset ID missing', {
+        duration: 8000,
+      });
+    }
+
+    // Step 5: Register on Story Protocol if enabled (SPG method)
+    // Only proceed if database was updated successfully (so Story Protocol API can find the asset)
+    if (formData.registerStoryProtocol && assetId) {
+      if (!databaseUpdateSuccess) {
+        console.warn('Skipping Story Protocol registration: database update failed');
+        toast.error('Cannot register on Story Protocol: database not updated');
+      } else {
+        // ✅ SPG handles NFT minting - no tokenId needed
+        await registerOnStoryProtocol(assetId);
+      }
     }
     
+    // Only stop processing after ALL steps complete
     setProcessing(false);
   };
 
-  const registerOnStoryProtocol = async (tokenId) => {
-    // Guard against null/undefined tokenId
-    if (!tokenId) {
-      toast.error('Token ID not available. Please register on DippChain first.');
+  /**
+   * Register asset on Story Protocol as an IP Asset
+   * @param {string} assetId - The database asset ID (required)
+   * @param {number|string} tokenId - The DippChain token ID (required)
+   */
+  const registerOnStoryProtocol = async (assetId) => {
+    // ✅ Validate asset ID (SPG handles NFT minting, no tokenId needed)
+    if (!assetId) {
+      toast.error('Asset ID not available. Cannot register on Story Protocol.');
+      updateProgressStep('story', 'error', 'Asset ID missing');
       return;
     }
 
-    const toastId = toast.loading('Registering on Story Protocol...');
+    console.log('🌐 Starting Story Protocol registration (SPG method):', { assetId });
+    updateProgressStep('story', 'processing', 'Registering IP asset with SPG...');
 
     try {
-      const response = await fetch('/api/assets/register-ip', {
+      // ✅ Use modern SPG API endpoint (handles minting + registration + license in one transaction)
+      const payload = {
+        assetId: assetId,
+        licenseType: 'COMMERCIAL_USE', // Can be COMMERCIAL_USE, COMMERCIAL_REMIX, or NON_COMMERCIAL
+        commercialRevShare: 5, // 5% revenue share
+        defaultMintingFee: '10', // 10 WIP (will be converted to wei)
+      };
+
+      console.log('📤 Sending Story Protocol registration request (SPG):', {
+        assetId: payload.assetId,
+        licenseType: payload.licenseType,
+      });
+
+      const response = await fetch('/api/assets/register-ip-modern', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          assetId: uploadResult.asset.id,
-          tokenId: String(tokenId),
-          ipMetadataURI: uploadResult.metadataData?.url || uploadResult.uploadData.url,
-          ipMetadataHash: '0x' + uploadResult.contentHash,
-          nftMetadataURI: uploadResult.metadataData?.url || uploadResult.uploadData.url,
-          nftMetadataHash: '0x' + uploadResult.contentHash,
-          licenseType: 'COMMERCIAL_USE',
-        }),
+        body: JSON.stringify(payload),
       });
 
       let data;
@@ -498,24 +745,40 @@ export default function UploadPage() {
         data = await response.json();
       } catch (parseErr) {
         console.error('Response parse error:', parseErr);
-        toast.error('Story Protocol registration failed. Please try again later.', { id: toastId });
+        updateProgressStep('story', 'error', 'Failed to parse response');
+        toast.error('Story Protocol registration failed. Please try again later.');
         return;
       }
 
       if (!response.ok) {
-        const errorMessage = data.error || data.details || 'Story Protocol registration failed';
-        toast.error(errorMessage, { id: toastId });
+        // Handle error object structure: { error: { message, code, details } }
+        const errorMessage = data.error?.message || data.error?.details || data.error || data.details || 'Story Protocol registration failed';
+        updateProgressStep('story', 'error', errorMessage);
+        toast.error(errorMessage);
         return;
       }
 
+      // ✅ Handle response from register-ip-modern API
       setStoryProtocolResult({
-        ipId: data.ipId,
-        txHash: data.txHash,
-        licenseAttached: data.licenseAttached,
-        explorerUrl: data.explorerUrl,
+        ipId: data.data?.ipId || data.ipId,
+        txHash: data.data?.txHash || data.txHash,
+        tokenId: data.data?.tokenId || data.tokenId,
+        nftContract: data.data?.nftContract || data.nftContract,
+        licenseTermsId: data.data?.licenseTermsId || data.licenseTermsId,
+        licenseAttached: true, // SPG always attaches license
+        explorerUrl: data.data?.explorerUrl || data.explorerUrl,
       });
 
-      toast.success('Registered on Story Protocol!', { id: toastId });
+      const ipId = data.data?.ipId || data.ipId;
+      updateProgressStep('story', 'completed', `IP ID: ${ipId?.slice(0, 8)}...`);
+      toast.success('✅ Asset fully registered! Ready for fractionalization.');
+      
+      // 🎉 Celebrate with confetti!
+      triggerConfetti();
+      
+      // ✅ Clean up localStorage - registration complete
+      localStorage.removeItem('dippchain_current_asset');
+      console.log('🎉 Full registration complete! Asset ready for fractionalization.');
     } catch (error) {
       console.error('Story Protocol error:', error);
       
@@ -525,7 +788,107 @@ export default function UploadPage() {
         errorMessage = 'Network error. Please check your connection.';
       }
       
-      toast.error(errorMessage, { id: toastId });
+      updateProgressStep('story', 'error', errorMessage);
+      toast.error(errorMessage);
+    }
+  };
+
+  /**
+   * Register asset on Story Protocol using SPG (SIMPLIFIED - Buildathon Version)
+   * SPG mints NFT + registers IP + attaches license in ONE transaction
+   * No need for DippChain Registry token ID!
+   * 
+   * @param {string} assetId - The database asset ID (required)
+   */
+  const registerOnStoryProtocolSPG = async (assetId) => {
+    try {
+      // ✅ Validate asset ID
+      if (!assetId) {
+        toast.error('Asset ID not available. Cannot register on Story Protocol.');
+        updateProgressStep('story', 'error', 'Asset ID missing');
+        setProcessing(false);
+        return;
+      }
+
+      console.log('🌐 Starting Story Protocol SPG registration for asset:', assetId);
+      updateProgressStep('story', 'processing', 'Registering IP asset with SPG...');
+
+      // ✅ Call backend API - SPG handles everything
+      // Backend will fetch all metadata from the database asset
+      const payload = {
+        assetId: assetId,
+        licenseType: 'COMMERCIAL_USE',
+        // No need to pass metadata - backend fetches from database
+      };
+
+      console.log('📤 Sending SPG registration request for asset:', assetId);
+
+      const response = await fetch('/api/assets/register-ip-modern', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      let data;
+      try {
+        data = await response.json();
+      } catch (parseErr) {
+        console.error('Response parse error:', parseErr);
+        updateProgressStep('story', 'error', 'Failed to parse response');
+        toast.error('Story Protocol registration failed. Please try again later.');
+        setProcessing(false);
+        return;
+      }
+
+      if (!response.ok) {
+        // Handle error object structure: { error: { message, code, details } }
+        const errorMessage = data.error?.message || data.error?.details || data.error || data.details || 'Story Protocol registration failed';
+        updateProgressStep('story', 'error', errorMessage);
+        toast.error(errorMessage);
+        setProcessing(false);
+        return;
+      }
+
+      // ✅ Success! Handle response from register-ip-modern API
+      const responseData = data.data || data;
+      setStoryProtocolResult({
+        ipId: responseData.ipId,
+        txHash: responseData.txHash,
+        tokenId: responseData.tokenId,
+        nftContract: responseData.nftContract,
+        licenseTermsId: responseData.licenseTermsId,
+        licenseAttached: true, // SPG always attaches license
+        explorerUrl: responseData.explorerUrl,
+      });
+
+      const ipId = responseData.ipId;
+      updateProgressStep('story', 'completed', `IP ID: ${ipId?.slice(0, 8)}...`);
+      toast.success('✅ Asset registered on Story Protocol! Ready for fractionalization.');
+      
+      // 🎉 Celebrate with confetti!
+      triggerConfetti();
+      
+      // ✅ Clean up localStorage - registration complete
+      localStorage.removeItem('dippchain_current_asset');
+      console.log('🎉 Full SPG registration complete!');
+      console.log('IP ID:', responseData.ipId);
+      console.log('Token ID:', responseData.tokenId);
+      console.log('License Terms ID:', responseData.licenseTermsId);
+
+      setProcessing(false);
+
+    } catch (error) {
+      console.error('Story Protocol SPG error:', error);
+      
+      // User-friendly error messages
+      let errorMessage = 'Story Protocol registration failed';
+      if (error.message?.includes('network') || error.message?.includes('fetch')) {
+        errorMessage = 'Network error. Please check your connection.';
+      }
+      
+      updateProgressStep('story', 'error', errorMessage);
+      toast.error(errorMessage);
+      setProcessing(false);
     }
   };
 
@@ -572,12 +935,12 @@ export default function UploadPage() {
       </div>
 
       <div style={{
-        maxWidth: '640px',
-        margin: '0 auto',
+        maxWidth: '100%',
+        width: '100%',
         backgroundColor: 'white',
         border: '1px solid #e5e5e5',
         borderRadius: '12px',
-        padding: '32px',
+        padding: '32px 24px',
       }}>
         {/* Step 1: File Selection */}
         {currentStep <= 1 && (
@@ -700,7 +1063,8 @@ export default function UploadPage() {
                     </span>
                   </label>
                   
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                  {/* ✅ BUILDATHON: Hidden DippChain Registry option - using SPG only */}
+                  {/* <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
                     <input
                       type="checkbox"
                       name="registerOnChain"
@@ -711,7 +1075,7 @@ export default function UploadPage() {
                     <span style={{ fontSize: '14px', color: '#0a0a0a' }}>
                       Register on DippChain Registry (on-chain)
                     </span>
-                  </label>
+                  </label> */}
                   
                   <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
                     <input
@@ -722,7 +1086,7 @@ export default function UploadPage() {
                       style={{ width: '16px', height: '16px' }}
                     />
                     <span style={{ fontSize: '14px', color: '#0a0a0a' }}>
-                      Register as IP Asset on Story Protocol
+                      Register as IP Asset on Story Protocol (SPG)
                     </span>
                   </label>
                 </div>
@@ -769,8 +1133,192 @@ export default function UploadPage() {
           </>
         )}
 
-        {/* Step 3: Registration */}
-        {currentStep >= 2 && uploadResult && (
+        {/* Step 2.5: Processing Progress Display */}
+        {currentStep === 2 && processing && (
+          <div style={{
+            padding: '32px',
+            backgroundColor: '#fafafa',
+            borderRadius: '12px',
+            border: '1px solid #e5e5e5',
+          }}>
+            <h3 style={{ 
+              fontSize: '16px', 
+              fontWeight: '600', 
+              color: '#0a0a0a', 
+              marginBottom: '24px',
+              textAlign: 'center',
+            }}>
+              Processing Your Asset
+            </h3>
+
+            {/* Progress Steps */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {progressSteps.map((step) => {
+                if (step.status === 'pending') return null;
+                
+                return (
+                  <div
+                    key={step.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      padding: '12px 16px',
+                      backgroundColor: 'white',
+                      borderRadius: '8px',
+                      border: '1px solid #e5e5e5',
+                    }}
+                  >
+                    {/* Icon */}
+                    <div style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      backgroundColor: 
+                        step.status === 'completed' ? '#dcfce7' : 
+                        step.status === 'processing' ? '#dbeafe' :
+                        step.status === 'error' ? '#fee2e2' : '#f5f5f5',
+                    }}>
+                      {step.status === 'completed' && (
+                        <Check size={18} color="#16a34a" />
+                      )}
+                      {step.status === 'processing' && (
+                        <Loader2 size={18} color="#2563eb" className="animate-spin" />
+                      )}
+                      {step.status === 'error' && (
+                        <AlertCircle size={18} color="#dc2626" />
+                      )}
+                    </div>
+
+                    {/* Content */}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ 
+                        fontSize: '14px', 
+                        fontWeight: '500', 
+                        color: '#0a0a0a',
+                        marginBottom: '2px',
+                      }}>
+                        {step.label}
+                      </div>
+                      {step.message && (
+                        <div style={{ 
+                          fontSize: '12px', 
+                          color: step.status === 'error' ? '#dc2626' : '#737373',
+                        }}>
+                          {step.message}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Step 3: On-chain Registration Progress */}
+        {currentStep === 3 && processing && (
+          <div style={{
+            padding: '32px',
+            backgroundColor: '#fafafa',
+            borderRadius: '12px',
+            border: '1px solid #e5e5e5',
+          }}>
+            <h3 style={{ 
+              fontSize: '16px', 
+              fontWeight: '600', 
+              color: '#0a0a0a', 
+              marginBottom: '24px',
+              textAlign: 'center',
+            }}>
+              Registering On-Chain
+            </h3>
+
+            {/* Progress Steps - Show only on-chain and story steps */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {progressSteps.filter(s => s.id === 'onchain' || s.id === 'story').map((step) => {
+                // Show all steps during registration (even pending ones for visibility)
+                
+                return (
+                  <div
+                    key={step.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      padding: '12px 16px',
+                      backgroundColor: 'white',
+                      borderRadius: '8px',
+                      border: '1px solid #e5e5e5',
+                      opacity: step.status === 'pending' ? 0.6 : 1,
+                    }}
+                  >
+                    {/* Icon */}
+                    <div style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      backgroundColor: 
+                        step.status === 'completed' ? '#dcfce7' : 
+                        step.status === 'processing' ? '#dbeafe' :
+                        step.status === 'error' ? '#fee2e2' : '#f5f5f5',
+                      border: step.status === 'pending' ? '2px dashed #d4d4d4' : 'none',
+                    }}>
+                      {step.status === 'completed' && (
+                        <Check size={18} color="#16a34a" />
+                      )}
+                      {step.status === 'processing' && (
+                        <Loader2 size={18} color="#2563eb" className="animate-spin" />
+                      )}
+                      {step.status === 'error' && (
+                        <AlertCircle size={18} color="#dc2626" />
+                      )}
+                      {step.status === 'pending' && (
+                        <span style={{ fontSize: '14px', color: '#a3a3a3', fontWeight: '600' }}>⋯</span>
+                      )}
+                    </div>
+
+                    {/* Content */}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ 
+                        fontSize: '14px', 
+                        fontWeight: '500', 
+                        color: step.status === 'pending' ? '#a3a3a3' : '#0a0a0a',
+                        marginBottom: '2px',
+                      }}>
+                        {step.label}
+                      </div>
+                      {step.message && (
+                        <div style={{ 
+                          fontSize: '12px', 
+                          color: step.status === 'error' ? '#dc2626' : '#737373',
+                        }}>
+                          {step.message}
+                        </div>
+                      )}
+                      {step.status === 'pending' && (
+                        <div style={{ fontSize: '12px', color: '#a3a3a3' }}>
+                          Waiting...
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Step 3: Registration Results */}
+        {currentStep >= 2 && uploadResult && !processing && (
           <div>
             {/* Upload Success Summary */}
             <div style={{
@@ -811,109 +1359,9 @@ export default function UploadPage() {
               </a>
             </div>
 
-            {/* On-chain Registration */}
-            {formData.registerOnChain && !registrationResult && (
-              <div style={{
-                padding: '20px',
-                backgroundColor: '#fafafa',
-                border: '1px solid #e5e5e5',
-                borderRadius: '12px',
-                marginBottom: '24px',
-              }}>
-                <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#0a0a0a', marginBottom: '12px' }}>
-                  Register on DippChain
-                </h3>
-                <p style={{ fontSize: '13px', color: '#737373', marginBottom: '16px' }}>
-                  Registering your asset on-chain creates an immutable record of ownership and enables licensing, fractionalization, and protection features.
-                </p>
-                
-                <button
-                  onClick={registerOnChain}
-                  disabled={processing}
-                  style={{
-                    width: '100%',
-                    padding: '12px',
-                    fontSize: '14px',
-                    fontWeight: '500',
-                    color: 'white',
-                    backgroundColor: processing ? '#a3a3a3' : '#0a0a0a',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: processing ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '8px',
-                  }}
-                >
-                  {processing ? (
-                    <>
-                      <Loader2 size={16} className="animate-spin" />
-                      Registering...
-                    </>
-                  ) : (
-                    'Register On-Chain'
-                  )}
-                </button>
-              </div>
-            )}
+            {/* ✅ SPG handles NFT minting - no separate DippChain Registry step needed */}
 
-            {/* Registration Success */}
-            {registrationResult && (
-              <div style={{
-                padding: '20px',
-                backgroundColor: '#f0fdf4',
-                border: '1px solid #bbf7d0',
-                borderRadius: '12px',
-                marginBottom: '24px',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
-                  <Check size={20} color="#16a34a" />
-                  <span style={{ fontSize: '15px', fontWeight: '600', color: '#16a34a' }}>
-                    Registered On-Chain!
-                  </span>
-                </div>
-                
-                <div style={{ fontSize: '13px', color: '#525252' }}>
-                  <p><strong>Token ID:</strong> {registrationResult.tokenId ? `#${registrationResult.tokenId}` : 'Pending...'}</p>
-                  <p><strong>Block:</strong> {registrationResult.blockNumber}</p>
-                  <p><strong>Content Hash:</strong> {uploadResult.contentHash?.slice(0, 16)}...</p>
-                </div>
-                
-                <div style={{ display: 'flex', gap: '16px', marginTop: '12px' }}>
-                  <a
-                    href={`https://aeneid.storyscan.io/tx/${registrationResult.txHash}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      fontSize: '13px',
-                      color: '#0a0a0a',
-                      textDecoration: 'underline',
-                    }}
-                  >
-                    View Transaction <ExternalLink size={14} />
-                  </a>
-                  <a
-                    href={`https://aeneid.storyscan.io/token/${CONTRACTS.DippChainRegistry}?a=${registrationResult.tokenId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      fontSize: '13px',
-                      color: '#0a0a0a',
-                      textDecoration: 'underline',
-                    }}
-                  >
-                    View NFT <ExternalLink size={14} />
-                  </a>
-                </div>
-              </div>
-            )}
+            {/* ✅ SPG handles NFT minting - no separate DippChain Registry registration needed */}
 
             {/* Story Protocol IP Registration Success */}
             {storyProtocolResult && (
@@ -933,7 +1381,14 @@ export default function UploadPage() {
                 
                 <div style={{ fontSize: '13px', color: '#525252' }}>
                   <p><strong>IP Asset ID:</strong> {storyProtocolResult.ipId?.slice(0, 10)}...{storyProtocolResult.ipId?.slice(-8)}</p>
+                  {storyProtocolResult.tokenId && (
+                    <p><strong>SPG Token ID:</strong> #{storyProtocolResult.tokenId}</p>
+                  )}
+                  {storyProtocolResult.licenseTermsId && (
+                    <p><strong>License Terms ID:</strong> {storyProtocolResult.licenseTermsId}</p>
+                  )}
                   <p><strong>License Attached:</strong> {storyProtocolResult.licenseAttached ? 'Yes (Commercial Use)' : 'No'}</p>
+                  <p><strong>Royalty Vault:</strong> Created ✅</p>
                 </div>
                 
                 <a
@@ -955,8 +1410,8 @@ export default function UploadPage() {
               </div>
             )}
 
-            {/* Story Protocol Registration Pending (if DippChain registered but Story not yet) */}
-            {registrationResult && formData.registerStoryProtocol && !storyProtocolResult && !processing && (
+            {/* Story Protocol Registration Pending */}
+            {uploadResult?.asset && formData.registerStoryProtocol && !storyProtocolResult && !processing && (
               <div style={{
                 padding: '20px',
                 backgroundColor: '#fafafa',
@@ -972,23 +1427,21 @@ export default function UploadPage() {
                 </p>
                 
                 <button
-                  onClick={() => registerOnStoryProtocol(registrationResult?.tokenId)}
-                  disabled={processing || !registrationResult?.tokenId}
+                  onClick={() => registerOnStoryProtocol(uploadResult?.asset?.id)}
+                  disabled={processing || !uploadResult?.asset?.id}
                   style={{
                     width: '100%',
                     padding: '12px',
                     fontSize: '14px',
                     fontWeight: '500',
                     color: 'white',
-                    backgroundColor: registrationResult?.tokenId ? '#2563eb' : '#9ca3af',
+                    backgroundColor: uploadResult?.asset?.id ? '#2563eb' : '#9ca3af',
                     border: 'none',
                     borderRadius: '8px',
-                    cursor: registrationResult?.tokenId ? 'pointer' : 'not-allowed',
+                    cursor: uploadResult?.asset?.id ? 'pointer' : 'not-allowed',
                   }}
                 >
-                  {registrationResult?.tokenId 
-                    ? 'Register as IP Asset' 
-                    : 'Token ID not available'}
+                  Register as IP Asset on Story Protocol
                 </button>
               </div>
             )}

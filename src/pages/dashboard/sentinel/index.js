@@ -104,7 +104,7 @@ export default function SentinelPage() {
   return (
     <DashboardLayout title="Sentinel Detection">
       {/* Stats Row */}
-      <div style={{
+      <div className="sentinel-stats" style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(4, 1fr)',
         gap: '16px',
@@ -149,7 +149,7 @@ export default function SentinelPage() {
       </div>
 
       {/* Filters & Actions */}
-      <div style={{
+      <div className="sentinel-header" style={{
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
@@ -157,7 +157,7 @@ export default function SentinelPage() {
         flexWrap: 'wrap',
         gap: '12px',
       }}>
-        <div style={{ display: 'flex', gap: '12px' }}>
+        <div className="sentinel-filters" style={{ display: 'flex', gap: '12px' }}>
           <select
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
@@ -252,7 +252,7 @@ export default function SentinelPage() {
           borderRadius: '12px',
           overflow: 'hidden',
         }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <table className="sentinel-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ backgroundColor: '#fafafa', borderBottom: '1px solid #e5e5e5' }}>
                 <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#525252' }}>
@@ -355,8 +355,136 @@ export default function SentinelPage() {
               ))}
             </tbody>
           </table>
+
+          {/* Mobile Cards */}
+          <div className="sentinel-cards">
+            {alerts.map((alert) => (
+              <div key={alert.id} style={{
+                padding: '16px',
+                borderBottom: '1px solid #f5f5f5',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: '12px' }}>
+                  <AlertTriangle size={20} color={alert.severity === 'HIGH' || alert.severity === 'CRITICAL' ? '#dc2626' : '#d97706'} style={{ flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '14px', fontWeight: '600', color: '#0a0a0a', marginBottom: '4px' }}>
+                      {alert.asset?.title || 'Unknown'}
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#737373', marginBottom: '8px' }}>
+                      {alert.platform} · {formatRelativeTime(alert.detectedAt)}
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                      <SeverityBadge severity={alert.severity} />
+                      <StatusBadge status={alert.status} />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{
+                        flex: 1,
+                        height: '6px',
+                        backgroundColor: '#f5f5f5',
+                        borderRadius: '3px',
+                        overflow: 'hidden',
+                      }}>
+                        <div style={{
+                          width: `${alert.similarityScore}%`,
+                          height: '100%',
+                          backgroundColor: alert.similarityScore >= 90 ? '#dc2626' : alert.similarityScore >= 70 ? '#d97706' : '#16a34a',
+                        }} />
+                      </div>
+                      <span style={{ fontSize: '13px', fontWeight: '600', color: '#0a0a0a' }}>
+                        {alert.similarityScore}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', paddingTop: '12px', borderTop: '1px solid #f5f5f5' }}>
+                  <a
+                    href={alert.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      flex: 1,
+                      padding: '8px 12px',
+                      fontSize: '13px',
+                      fontWeight: '500',
+                      textAlign: 'center',
+                      color: '#525252',
+                      backgroundColor: 'white',
+                      border: '1px solid #e5e5e5',
+                      borderRadius: '6px',
+                      textDecoration: 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                    }}
+                  >
+                    <ExternalLink size={14} /> View Source
+                  </a>
+                  <button style={{
+                    flex: 1,
+                    padding: '8px 12px',
+                    fontSize: '13px',
+                    fontWeight: '500',
+                    color: '#0a0a0a',
+                    backgroundColor: 'white',
+                    border: '1px solid #e5e5e5',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                  }}>
+                    Review
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
+
+      <style jsx>{`
+        .sentinel-cards {
+          display: none;
+        }
+
+        @media (max-width: 1024px) {
+          .sentinel-stats {
+            grid-template-columns: repeat(2, 1fr) !important;
+          }
+        }
+
+        @media (max-width: 768px) {
+          .sentinel-table {
+            display: none;
+          }
+
+          .sentinel-cards {
+            display: block;
+          }
+
+          .sentinel-header {
+            flex-direction: column;
+            align-items: stretch !important;
+          }
+
+          .sentinel-filters {
+            flex-direction: column !important;
+          }
+
+          .sentinel-filters select {
+            width: 100%;
+          }
+
+          .sentinel-header button {
+            width: 100%;
+            justify-content: center;
+          }
+        }
+
+        @media (max-width: 640px) {
+          .sentinel-stats {
+            grid-template-columns: 1fr !important;
+          }
+        }
+      `}</style>
     </DashboardLayout>
   );
 }

@@ -29,17 +29,36 @@ export default async function handler(req, res) {
       });
     }
 
-    // Check if asset exists and belongs to creator
+    // Check if asset exists and get owner info
     const asset = await prisma.asset.findUnique({
       where: { id: assetId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            walletAddress: true,
+          },
+        },
+      },
     });
 
     if (!asset) {
       return res.status(404).json({ error: 'Asset not found' });
     }
 
-    if (asset.userId !== creatorId) {
-      return res.status(403).json({ error: 'Only asset owner can create licenses' });
+    // Check ownership - creatorId might be wallet address or user ID
+    const isOwner = asset.userId === creatorId || 
+                    asset.user.walletAddress?.toLowerCase() === creatorId?.toLowerCase();
+    
+    if (!isOwner) {
+      return res.status(403).json({ 
+        error: 'Only asset owner can create licenses',
+        debug: {
+          assetUserId: asset.userId,
+          assetWalletAddress: asset.user.walletAddress,
+          providedCreatorId: creatorId,
+        },
+      });
     }
 
     // Check for existing exclusive license
@@ -59,22 +78,51 @@ export default async function handler(req, res) {
       }
     }
 
+    // Use the asset owner's internal user ID for the license
+    const actualCreatorId = asset.userId;
+
+    // Validate template exists if provided (skip default/hardcoded IDs)
+    let validTemplateId = null;
+    if (templateId && !templateId.includes('-')) {
+      // Looks like a UUID, check if it exists
+      try {
+        const templateExists = await prisma.licenseTemplate.findUnique({
+          where: { id: templateId },
+        });
+        
+        if (templateExists) {
+          validTemplateId = templateId;
+        } else {
+          console.warn('Template not found:', templateId);
+        }
+      } catch (err) {
+        console.warn('Template validation error:', err.message);
+      }
+    } else if (templateId) {
+      console.log('Skipping default template ID:', templateId);
+    }
+
+    // Create license data object
+    const licenseData = {
+      assetId,
+      creatorId: actualCreatorId, // Use internal user ID from asset
+      licenseType,
+      terms,
+      currency,
+      isExclusive,
+      status: licenseeId ? 'ACTIVE' : 'PENDING',
+    };
+
+    // Only include optional fields if they have values
+    if (licenseeId) licenseData.licenseeId = licenseeId;
+    if (validTemplateId) licenseData.templateId = validTemplateId;
+    if (price) licenseData.price = parseFloat(price);
+    if (startDate) licenseData.startDate = new Date(startDate);
+    if (endDate) licenseData.endDate = new Date(endDate);
+
     // Create license
     const license = await prisma.license.create({
-      data: {
-        assetId,
-        creatorId,
-        licenseeId,
-        licenseType,
-        templateId,
-        terms,
-        price: price ? parseFloat(price) : null,
-        currency,
-        startDate: startDate ? new Date(startDate) : null,
-        endDate: endDate ? new Date(endDate) : null,
-        isExclusive,
-        status: licenseeId ? 'ACTIVE' : 'PENDING',
-      },
+      data: licenseData,
       include: {
         asset: {
           select: { id: true, title: true, assetType: true },

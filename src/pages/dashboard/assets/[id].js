@@ -40,7 +40,9 @@ export default function AssetDetailPage() {
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState('');
   const [registering, setRegistering] = useState(false);
+  const [attachingLicense, setAttachingLicense] = useState(false);
   const [showStoryModal, setShowStoryModal] = useState(false);
+  const [showLicenseModal, setShowLicenseModal] = useState(false);
   const [selectedLicense, setSelectedLicense] = useState('COMMERCIAL_USE');
   const [manualTokenId, setManualTokenId] = useState('');
 
@@ -54,17 +56,32 @@ export default function AssetDetailPage() {
     try {
       setLoading(true);
       const response = await fetch(`/api/assets/${id}`);
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.error?.message || errorData.error?.details || errorData.error || `HTTP error! status: ${response.status}`;
+        throw new Error(errorMessage);
+      }
+      
       const data = await response.json();
       
-      if (data.success) {
-        setAsset(data.asset);
+      // Handle both response formats: { success: true, data: { asset } } or { success: true, asset }
+      const assetData = data.data?.asset || data.asset;
+      
+      if (data.success && assetData) {
+        setAsset(assetData);
       } else {
         toast.error('Asset not found');
         router.push('/dashboard/assets');
       }
     } catch (error) {
       console.error('Failed to fetch asset:', error);
-      toast.error('Failed to load asset');
+      if (error.name === 'TypeError' && error.message.includes('fetch')) {
+        toast.error('Network error. Please check your connection.');
+      } else {
+        toast.error(error.message || 'Failed to load asset');
+      }
+      router.push('/dashboard/assets');
     } finally {
       setLoading(false);
     }
@@ -199,7 +216,8 @@ export default function AssetDetailPage() {
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        toast.error(data.error || data.details || 'Registration failed', { id: toastId });
+        const errorMsg = data.error?.message || data.error || data.details || 'Registration failed';
+        toast.error(errorMsg, { id: toastId });
         return;
       }
 
@@ -221,6 +239,47 @@ export default function AssetDetailPage() {
       toast.error('Failed to register on Story Protocol', { id: toastId });
     } finally {
       setRegistering(false);
+    }
+  };
+
+  const handleAttachLicense = async () => {
+    if (!asset || !asset.storyProtocolId) {
+      toast.error('Asset must be registered on Story Protocol first');
+      return;
+    }
+
+    setAttachingLicense(true);
+    const toastId = toast.loading('Attaching license terms...');
+
+    try {
+      const response = await fetch('/api/assets/attach-license', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assetId: asset.id,
+          ipId: asset.storyProtocolId,
+          licenseType: selectedLicense,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        const errorMsg = data.error?.message || data.error || data.details || 'Failed to attach license terms';
+        toast.error(errorMsg, { id: toastId });
+        return;
+      }
+
+      toast.success('License terms attached! Royalty vault is now created.', { id: toastId });
+      setShowLicenseModal(false);
+      
+      // Refresh asset data
+      fetchAsset();
+    } catch (error) {
+      console.error('Attach license error:', error);
+      toast.error('Failed to attach license terms', { id: toastId });
+    } finally {
+      setAttachingLicense(false);
     }
   };
 
@@ -256,6 +315,9 @@ export default function AssetDetailPage() {
       </DashboardLayout>
     );
   }
+
+  // Check if current user is the asset owner
+  const isOwner = address && asset.user?.walletAddress?.toLowerCase() === address.toLowerCase();
 
   return (
     <DashboardLayout title={asset.title}>
@@ -422,8 +484,7 @@ export default function AssetDetailPage() {
                     Registered as IP Asset
                   </span>
                 </div>
-                
-                <div style={{ display: 'grid', gap: '12px' }}>
+                <div style={{ display: 'grid', gap: '12px', marginBottom: '16px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: '13px', color: '#737373' }}>IP Asset ID</span>
                     <a
@@ -464,6 +525,56 @@ export default function AssetDetailPage() {
                     </div>
                   )}
                 </div>
+
+                {/* Attach License Terms Button - Only for owner */}
+                {isOwner ? (
+                  <>
+                    <button
+                      onClick={() => setShowLicenseModal(true)}
+                      disabled={attachingLicense}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        width: '100%',
+                        padding: '10px',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        color: '#8b5cf6',
+                        backgroundColor: 'white',
+                        border: '1px solid #8b5cf6',
+                        borderRadius: '8px',
+                        cursor: attachingLicense ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      {attachingLicense ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" /> Attaching License...
+                        </>
+                      ) : (
+                        <>
+                          <Shield size={14} /> Attach License Terms
+                        </>
+                      )}
+                    </button>
+                    
+                    <p style={{ fontSize: '11px', color: '#737373', marginTop: '8px', lineHeight: 1.4 }}>
+                      Attach license terms to create the Royalty Vault and enable fractionalization
+                    </p>
+                  </>
+                ) : (
+                  <div style={{
+                    padding: '12px',
+                    backgroundColor: '#fef3c7',
+                    border: '1px solid #fbbf24',
+                    borderRadius: '8px',
+                  }}>
+                    <p style={{ fontSize: '12px', color: '#92400e', lineHeight: 1.5 }}>
+                      Only the asset owner can attach license terms to this IP Asset.
+                    </p>
+                  </div>
+                )}
               </div>
             ) : (
               // Not yet registered on Story Protocol
@@ -486,6 +597,17 @@ export default function AssetDetailPage() {
                     <span style={{ fontSize: '13px', color: '#d97706' }}>
                       Register on DippChain first to get a Token ID
                     </span>
+                  </div>
+                ) : !isOwner ? (
+                  <div style={{
+                    padding: '12px',
+                    backgroundColor: '#fef3c7',
+                    border: '1px solid #fbbf24',
+                    borderRadius: '8px',
+                  }}>
+                    <p style={{ fontSize: '12px', color: '#92400e', lineHeight: 1.5 }}>
+                      Only the asset owner can register this as an IP Asset on Story Protocol.
+                    </p>
                   </div>
                 ) : (
                   <button
@@ -674,51 +796,63 @@ export default function AssetDetailPage() {
             </h3>
             
             <div style={{ display: 'grid', gap: '10px' }}>
-              <button style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                padding: '12px',
-                fontSize: '13px',
-                fontWeight: '500',
-                color: 'white',
-                backgroundColor: '#0a0a0a',
-                border: 'none',
-                borderRadius: '8px',
-                cursor: 'pointer',
-              }}>
-                <Share2 size={16} /> Create License
-              </button>
+              <Link href={`/dashboard/licenses/create?assetId=${asset.id}`}>
+                <button style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  padding: '12px',
+                  fontSize: '13px',
+                  fontWeight: '500',
+                  color: 'white',
+                  backgroundColor: isOwner ? '#0a0a0a' : '#a3a3a3',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: isOwner ? 'pointer' : 'not-allowed',
+                  width: '100%',
+                }}>
+                  <Share2 size={16} /> Create License
+                </button>
+              </Link>
               
-              <button style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                padding: '12px',
-                fontSize: '13px',
-                fontWeight: '500',
-                color: '#0a0a0a',
-                backgroundColor: 'white',
-                border: '1px solid #e5e5e5',
-                borderRadius: '8px',
-                cursor: 'pointer',
-              }}>
-                <BarChart3 size={16} /> Fractionalize
-              </button>
+              <Link href={asset.fractionalization ? `/dashboard/fractions` : `/dashboard/fractions/create`}>
+                <button 
+                  disabled={!isOwner || !asset.storyProtocolId}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '12px',
+                    fontSize: '13px',
+                    fontWeight: '500',
+                    color: '#0a0a0a',
+                    backgroundColor: 'white',
+                    border: '1px solid #e5e5e5',
+                    borderRadius: '8px',
+                    cursor: (isOwner && asset.storyProtocolId) ? 'pointer' : 'not-allowed',
+                    width: '100%',
+                    opacity: (isOwner && asset.storyProtocolId) ? 1 : 0.5,
+                  }}>
+                  <BarChart3 size={16} /> {asset.fractionalization ? 'View Fractions' : 'Fractionalize'}
+                </button>
+              </Link>
               
-              <button style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                padding: '12px',
-                fontSize: '13px',
-                fontWeight: '500',
-                color: '#0a0a0a',
-                backgroundColor: 'white',
-                border: '1px solid #e5e5e5',
-                borderRadius: '8px',
-                cursor: 'pointer',
-              }}>
+              <button 
+                onClick={() => toast.info('Sentinel scanning coming soon!')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  padding: '12px',
+                  fontSize: '13px',
+                  fontWeight: '500',
+                  color: '#0a0a0a',
+                  backgroundColor: 'white',
+                  border: '1px solid #e5e5e5',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  width: '100%',
+                }}>
                 <Shield size={16} /> Scan with Sentinel
               </button>
             </div>
@@ -870,6 +1004,127 @@ export default function AssetDetailPage() {
                   </>
                 ) : (
                   'Register IP Asset'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Attach License Terms Modal */}
+      {showLicenseModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            padding: '32px',
+            maxWidth: '500px',
+            width: '90%',
+            maxHeight: '80vh',
+            overflow: 'auto',
+          }}>
+            <h2 style={{ fontSize: '18px', fontWeight: '600', color: '#0a0a0a', marginBottom: '8px' }}>
+              Attach License Terms
+            </h2>
+            <p style={{ fontSize: '14px', color: '#737373', marginBottom: '24px' }}>
+              Attaching license terms will create the IP Royalty Vault, enabling fractionalization and revenue distribution.
+            </p>
+
+            <div style={{ marginBottom: '24px' }}>
+              <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: '#0a0a0a', marginBottom: '12px' }}>
+                Select License Type
+              </label>
+              <div style={{ display: 'grid', gap: '12px' }}>
+                {LICENSE_OPTIONS.filter(opt => opt.value !== 'NONE').map((option) => (
+                  <label
+                    key={option.value}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '12px',
+                      padding: '12px',
+                      borderRadius: '8px',
+                      border: `2px solid ${selectedLicense === option.value ? '#8b5cf6' : '#e5e5e5'}`,
+                      backgroundColor: selectedLicense === option.value ? '#faf5ff' : 'white',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="attachLicense"
+                      value={option.value}
+                      checked={selectedLicense === option.value}
+                      onChange={(e) => setSelectedLicense(e.target.value)}
+                      style={{ marginTop: '2px' }}
+                    />
+                    <div>
+                      <div style={{ fontSize: '14px', fontWeight: '500', color: '#0a0a0a' }}>
+                        {option.label}
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#737373', marginTop: '2px' }}>
+                        {option.description}
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button
+                onClick={() => setShowLicenseModal(false)}
+                disabled={attachingLicense}
+                style={{
+                  flex: 1,
+                  padding: '12px',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  color: '#525252',
+                  backgroundColor: 'white',
+                  border: '1px solid #e5e5e5',
+                  borderRadius: '8px',
+                  cursor: attachingLicense ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAttachLicense}
+                disabled={attachingLicense}
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  padding: '12px',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  color: 'white',
+                  backgroundColor: attachingLicense ? '#a78bfa' : '#8b5cf6',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: attachingLicense ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {attachingLicense ? (
+                  <>
+                    <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> 
+                    Attaching...
+                  </>
+                ) : (
+                  'Attach License'
                 )}
               </button>
             </div>

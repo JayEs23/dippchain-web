@@ -1,42 +1,78 @@
-// API Route: Marketplace Listings
+// API Route: Get Marketplace Listings (Primary + Secondary)
 import prisma from '@/lib/prisma';
 
 export default async function handler(req, res) {
-  switch (req.method) {
-    case 'GET':
-      return getListings(req, res);
-    case 'POST':
-      return createListing(req, res);
-    default:
-      return res.status(405).json({ error: 'Method not allowed' });
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
   }
-}
 
-async function getListings(req, res) {
   try {
     const {
+      type, // 'primary', 'secondary', or 'all'
       status = 'ACTIVE',
-      fractionalizationId,
-      sellerId,
       page = 1,
       limit = 20,
-      sortBy = 'createdAt',
-      sortOrder = 'desc',
     } = req.query;
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const take = parseInt(limit);
 
-    const where = { status };
-    if (fractionalizationId) where.fractionalizationId = fractionalizationId;
-    if (sellerId) where.sellerId = sellerId;
+    // Get primary market listings (fractionalized assets with available supply)
+    let primaryListings = [];
+    if (type === 'primary' || type === 'all' || !type) {
+      const fractionalizations = await prisma.fractionalization.findMany({
+        where: {
+          status: 'DEPLOYED',
+          availableSupply: { gt: 0 },
+        },
+        include: {
+          asset: {
+            select: {
+              id: true,
+              title: true,
+              description: true,
+              thumbnailUrl: true,
+              assetType: true,
+              storyProtocolId: true,
+              user: {
+                select: {
+                  id: true,
+                  displayName: true,
+                  walletAddress: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
 
-    const [listings, total] = await Promise.all([
-      prisma.marketplaceListing.findMany({
-        where,
-        orderBy: { [sortBy]: sortOrder },
-        skip,
-        take,
+      primaryListings = fractionalizations.map(frac => ({
+        id: frac.id,
+        type: 'PRIMARY',
+        fractionalizationId: frac.id,
+        assetId: frac.assetId,
+        asset: frac.asset,
+        tokenAddress: frac.tokenAddress,
+        tokenName: frac.tokenName,
+        tokenSymbol: frac.tokenSymbol,
+        amount: frac.availableSupply,
+        pricePerToken: frac.pricePerToken,
+        currency: frac.currency,
+        totalPrice: frac.availableSupply * frac.pricePerToken,
+        seller: frac.asset.user,
+        createdAt: frac.createdAt,
+      }));
+    }
+
+    // Get secondary market listings (peer-to-peer sales)
+    let secondaryListings = [];
+    if (type === 'secondary' || type === 'all' || !type) {
+      const listings = await prisma.marketplaceListing.findMany({
+        where: {
+          status,
+          listingType: 'SECONDARY',
+        },
         include: {
           fractionalization: {
             include: {
@@ -44,79 +80,69 @@ async function getListings(req, res) {
                 select: {
                   id: true,
                   title: true,
-                  assetType: true,
+                  description: true,
                   thumbnailUrl: true,
+                  assetType: true,
+                  storyProtocolId: true,
                 },
               },
             },
           },
+          seller: {
+            select: {
+              id: true,
+              displayName: true,
+              walletAddress: true,
+            },
+          },
         },
-      }),
-      prisma.marketplaceListing.count({ where }),
-    ]);
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take,
+      });
+
+      secondaryListings = listings.map(listing => ({
+        id: listing.id,
+        type: 'SECONDARY',
+        fractionalizationId: listing.fractionalizationId,
+        assetId: listing.fractionalization.assetId,
+        asset: listing.fractionalization.asset,
+        tokenAddress: listing.fractionalization.tokenAddress,
+        tokenName: listing.fractionalization.tokenName,
+        tokenSymbol: listing.fractionalization.tokenSymbol,
+        amount: listing.amount,
+        pricePerToken: listing.pricePerToken,
+        currency: listing.currency,
+        totalPrice: listing.totalPrice,
+        seller: listing.seller,
+        createdAt: listing.createdAt,
+      }));
+    }
+
+    // Combine and sort
+    const allListings = [...primaryListings, ...secondaryListings].sort(
+      (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+    );
+
+    // Apply pagination to combined results
+    const paginatedListings = allListings.slice(skip, skip + take);
 
     return res.status(200).json({
       success: true,
-      listings,
+      listings: paginatedListings,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
-        total,
-        totalPages: Math.ceil(total / take),
+        total: allListings.length,
+        totalPages: Math.ceil(allListings.length / take),
       },
     });
   } catch (error) {
-    console.error('Get listings error:', error);
-    return res.status(500).json({ error: 'Failed to fetch listings', details: error.message });
-  }
-}
-
-async function createListing(req, res) {
-  try {
-    const {
-      fractionalizationId,
-      sellerId,
-      listingType = 'SECONDARY',
-      amount,
-      pricePerToken,
-      currency = 'IP',
-      expiresAt,
-    } = req.body;
-
-    if (!fractionalizationId || !sellerId || !amount || !pricePerToken) {
-      return res.status(400).json({
-        error: 'Missing required fields',
-        required: ['fractionalizationId', 'sellerId', 'amount', 'pricePerToken'],
-      });
-    }
-
-    const totalPrice = parseFloat(amount) * parseFloat(pricePerToken);
-
-    const listing = await prisma.marketplaceListing.create({
-      data: {
-        fractionalizationId,
-        sellerId,
-        listingType,
-        amount: parseFloat(amount),
-        pricePerToken: parseFloat(pricePerToken),
-        totalPrice,
-        currency,
-        status: 'ACTIVE',
-        expiresAt: expiresAt ? new Date(expiresAt) : null,
-      },
-      include: {
-        fractionalization: {
-          include: {
-            asset: { select: { title: true } },
-          },
-        },
-      },
+    console.error('Get marketplace listings error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch listings',
+      details: error.message,
     });
-
-    return res.status(201).json({ success: true, listing });
-  } catch (error) {
-    console.error('Create listing error:', error);
-    return res.status(500).json({ error: 'Failed to create listing', details: error.message });
   }
 }
-

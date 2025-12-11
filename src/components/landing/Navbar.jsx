@@ -27,7 +27,6 @@ export default function Navbar() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
             <a href="#features" style={{ fontSize: '14px', color: '#525252', textDecoration: 'none' }}>Features</a>
             <a href="#how-it-works" style={{ fontSize: '14px', color: '#525252', textDecoration: 'none' }}>How it Works</a>
-            <a href="#pricing" style={{ fontSize: '14px', color: '#525252', textDecoration: 'none' }}>Pricing</a>
           </div>
 
           {/* CTA */}

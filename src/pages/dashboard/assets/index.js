@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useAppKitAccount } from '@reown/appkit/react';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
+import AssetRecoveryModal from '@/components/recovery/AssetRecoveryModal';
+import toast from 'react-hot-toast';
 import { 
   Plus, Search, Filter, Image, Video, Music, FileText, File,
   MoreVertical, Eye, Edit, Trash2, Shield, Share2, ExternalLink,
@@ -63,6 +65,8 @@ export default function AssetsPage() {
   const [filterType, setFilterType] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [activeMenu, setActiveMenu] = useState(null);
+  const [cleaningUp, setCleaningUp] = useState(false);
+  const [recoveryAsset, setRecoveryAsset] = useState(null);
 
   useEffect(() => {
     if (isConnected && address) {
@@ -78,32 +82,126 @@ export default function AssetsPage() {
       if (filterStatus) params.append('status', filterStatus);
       
       const response = await fetch(`/api/assets?${params}`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
       const data = await response.json();
       
       if (data.success) {
-        setAssets(data.assets);
+        setAssets(data.assets || []);
+      } else {
+        console.error('Failed to fetch assets:', data);
+        toast.error('Failed to load assets');
       }
     } catch (error) {
       console.error('Failed to fetch assets:', error);
+      if (error.name === 'TypeError' && error.message.includes('fetch')) {
+        toast.error('Network error. Please check your connection.');
+      } else {
+        toast.error('Failed to load assets. Please try again.');
+      }
+      setAssets([]); // Set empty array on error
     } finally {
       setLoading(false);
     }
   };
 
+  const handleCleanupDrafts = async () => {
+    const draftCount = assets.filter(a => a.status === 'DRAFT').length;
+    
+    if (draftCount === 0) {
+      toast.error('No draft assets to clean up');
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to delete all ${draftCount} draft assets? This cannot be undone.`)) {
+      return;
+    }
+
+    setCleaningUp(true);
+    const toastId = toast.loading('Cleaning up draft assets...');
+
+    try {
+      const response = await fetch('/api/assets/cleanup-drafts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: address,
+          confirm: 'DELETE_ALL_DRAFTS',
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.error?.message || errorData.error?.details || errorData.error || `HTTP error! status: ${response.status}`;
+        throw new Error(errorMessage);
+      }
+
+      const data = await response.json();
+
+      if (data.success) {
+        toast.success(`Deleted ${data.deleted} draft assets`, { id: toastId });
+        // Refresh assets list
+        fetchAssets();
+      } else {
+        // Handle error object structure: { error: { message, code, details } }
+        const errorMessage = data.error?.message || data.error?.details || data.error || 'Cleanup failed';
+        throw new Error(errorMessage);
+      }
+    } catch (error) {
+      console.error('Cleanup error:', error);
+      if (error.name === 'TypeError' && error.message.includes('fetch')) {
+        toast.error('Network error. Please check your connection.', { id: toastId });
+      } else {
+        toast.error(error.message || 'Failed to clean up drafts', { id: toastId });
+      }
+    } finally {
+      setCleaningUp(false);
+    }
+  };
+
   const handleDelete = async (assetId) => {
-    if (!confirm('Are you sure you want to archive this asset?')) return;
+    if (!confirm('Are you sure you want to archive this asset? This cannot be undone.')) return;
+    
+    const toastId = toast.loading('Deleting asset...');
     
     try {
       const response = await fetch(`/api/assets/${assetId}`, {
         method: 'DELETE',
       });
       
-      if (response.ok) {
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.error?.message || errorData.error?.details || errorData.error || `HTTP error! status: ${response.status}`;
+        throw new Error(errorMessage);
+      }
+      
+      const data = await response.json();
+      
+      if (data.success !== false) {
         setAssets(prev => prev.filter(a => a.id !== assetId));
+        toast.success('Asset deleted successfully', { id: toastId });
+      } else {
+        const errorMessage = data.error?.message || data.error?.details || data.error || 'Failed to delete asset';
+        throw new Error(errorMessage);
       }
     } catch (error) {
       console.error('Failed to delete asset:', error);
+      if (error.name === 'TypeError' && error.message.includes('fetch')) {
+        toast.error('Network error. Please check your connection.', { id: toastId });
+      } else {
+        toast.error(error.message || 'Failed to delete asset', { id: toastId });
+      }
+    } finally {
+      setActiveMenu(null);
     }
+  };
+
+  const handleRetryRegistration = (asset) => {
+    // Open recovery modal to diagnose and fix the asset
+    setRecoveryAsset(asset);
     setActiveMenu(null);
   };
 
@@ -114,7 +212,7 @@ export default function AssetsPage() {
   return (
     <DashboardLayout title="My Assets">
       {/* Header Actions */}
-      <div style={{
+      <div className="assets-header" style={{
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
@@ -122,7 +220,7 @@ export default function AssetsPage() {
         flexWrap: 'wrap',
         gap: '16px',
       }}>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flex: 1 }}>
+        <div className="assets-filters" style={{ display: 'flex', gap: '12px', alignItems: 'center', flex: 1 }}>
           {/* Search */}
           <div style={{
             position: 'relative',
@@ -186,24 +284,50 @@ export default function AssetsPage() {
           </select>
         </div>
 
-        <Link href="/dashboard/upload">
-          <button style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '10px 20px',
-            fontSize: '14px',
-            fontWeight: '500',
-            color: 'white',
-            backgroundColor: '#0a0a0a',
-            border: 'none',
-            borderRadius: '8px',
-            cursor: 'pointer',
-          }}>
-            <Plus size={18} />
-            Upload Asset
-          </button>
-        </Link>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          {assets.filter(a => a.status === 'DRAFT').length > 0 && (
+            <button
+              onClick={handleCleanupDrafts}
+              disabled={cleaningUp}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '10px 20px',
+                fontSize: '14px',
+                fontWeight: '500',
+                color: '#dc2626',
+                backgroundColor: 'white',
+                border: '1px solid #fca5a5',
+                borderRadius: '8px',
+                cursor: cleaningUp ? 'not-allowed' : 'pointer',
+                opacity: cleaningUp ? 0.6 : 1,
+              }}
+            >
+              <Trash2 size={18} />
+              Clean Up Drafts ({assets.filter(a => a.status === 'DRAFT').length})
+            </button>
+          )}
+          
+          <Link href="/dashboard/upload">
+            <button style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '10px 20px',
+              fontSize: '14px',
+              fontWeight: '500',
+              color: 'white',
+              backgroundColor: '#0a0a0a',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer',
+            }}>
+              <Plus size={18} />
+              Upload Asset
+            </button>
+          </Link>
+        </div>
       </div>
 
       {/* Assets Grid */}
@@ -257,7 +381,7 @@ export default function AssetsPage() {
           </Link>
         </div>
       ) : (
-        <div style={{
+        <div className="assets-grid" style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
           gap: '20px',
@@ -368,21 +492,47 @@ export default function AssetsPage() {
                       }}>
                         <Shield size={14} /> Scan with Sentinel
                       </button>
-                      <button style={{
-                        width: '100%',
-                        padding: '10px 14px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        fontSize: '13px',
-                        color: '#0a0a0a',
-                        backgroundColor: 'transparent',
-                        border: 'none',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                      }}>
-                        <Share2 size={14} /> Create License
-                      </button>
+                      {/* Show Retry Registration for DRAFT assets */}
+                      {asset.status === 'DRAFT' && (
+                        <button 
+                          onClick={() => handleRetryRegistration(asset)}
+                          style={{
+                            width: '100%',
+                            padding: '10px 14px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            fontSize: '13px',
+                            color: '#2563eb',
+                            backgroundColor: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                          }}
+                        >
+                          <ExternalLink size={14} /> Complete Registration
+                        </button>
+                      )}
+                      
+                      {/* Only show Create License for registered assets */}
+                      {asset.status === 'REGISTERED' && (
+                        <button style={{
+                          width: '100%',
+                          padding: '10px 14px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '10px',
+                          fontSize: '13px',
+                          color: '#0a0a0a',
+                          backgroundColor: 'transparent',
+                          border: 'none',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                        }}>
+                          <Share2 size={14} /> Create License
+                        </button>
+                      )}
+                      
                       <div style={{ height: '1px', backgroundColor: '#e5e5e5', margin: '4px 0' }} />
                       <button 
                         onClick={() => handleDelete(asset.id)}
@@ -461,6 +611,41 @@ export default function AssetsPage() {
           onClick={() => setActiveMenu(null)}
         />
       )}
+
+      {/* Recovery Modal */}
+      {recoveryAsset && (
+        <AssetRecoveryModal
+          asset={recoveryAsset}
+          onClose={() => setRecoveryAsset(null)}
+          onRecoveryComplete={() => {
+            setRecoveryAsset(null);
+            fetchAssets(); // Refresh assets list
+          }}
+        />
+      )}
+
+      <style jsx>{`
+        @media (max-width: 640px) {
+          :global(.assets-header) {
+            flex-direction: column;
+            align-items: stretch !important;
+          }
+          
+          :global(.assets-filters) {
+            flex-direction: column !important;
+            width: 100% !important;
+            max-width: 100% !important;
+          }
+          
+          :global(.assets-filters) select {
+            width: 100%;
+          }
+          
+          :global(.assets-grid) {
+            grid-template-columns: 1fr !important;
+          }
+        }
+      `}</style>
     </DashboardLayout>
   );
 }

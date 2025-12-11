@@ -167,7 +167,8 @@ export const extractWatermark = async (file, expectedLength = 28) => {
 };
 
 /**
- * Generate metadata package for asset (Story Protocol compatible)
+ * Generate metadata package for asset following IPA Metadata Standard
+ * @see https://docs.story.foundation/concepts/ip-asset/ipa-metadata-standard
  */
 export const generateMetadata = async (file, options = {}) => {
   const {
@@ -177,32 +178,44 @@ export const generateMetadata = async (file, options = {}) => {
     creatorAddress,
     tags = [],
     watermarkId,
+    uploadUrl, // IPFS URL after upload
   } = options;
 
   const contentHash = await generateContentHash(file);
   const timestamp = new Date().toISOString();
   
-  return {
-    // Standard NFT metadata
-    name: title || file.name,
+  // ✅ IPA Metadata Standard structure
+  const ipMetadata = {
+    // Required fields
+    title: title || file.name,
     description: description || '',
-    image: '', // Will be filled with IPFS URL after upload
-    external_url: 'https://dippchain.io',
     
-    // Story Protocol IP Metadata Standard
+    // Media fields (required for media assets)
+    image: uploadUrl || '', // Will be filled with IPFS URL after upload
+    imageHash: contentHash, // SHA-256 hash (0x prefix will be added in API)
+    mediaUrl: uploadUrl || '', // IPFS URL of the actual media file
+    mediaHash: contentHash, // SHA-256 hash of media file
+    mediaType: file.type, // e.g., "image/png", "video/mp4", "audio/mpeg"
+    
+    // Creators array (required)
+    creators: [{
+      name: creator || title || 'Unknown Creator',
+      address: creatorAddress || '', // Wallet address of creator
+      contributionPercent: 100, // 100% if single creator
+    }],
+    
+    // Optional fields
+    external_url: 'https://dippchain.io',
     attributes: [
-      { trait_type: 'Creator', value: creator || 'Unknown' },
-      { trait_type: 'Creator Address', value: creatorAddress || '' },
       { trait_type: 'Platform', value: 'DippChain' },
       { trait_type: 'File Type', value: file.type },
       { trait_type: 'File Size', value: file.size },
       { trait_type: 'Registration Date', value: timestamp },
       { trait_type: 'Watermark ID', value: watermarkId || '' },
-      { trait_type: 'Content Hash', value: contentHash },
       ...tags.map(tag => ({ trait_type: 'Tag', value: tag })),
     ],
     
-    // DippChain specific properties
+    // DippChain specific properties (kept for backward compatibility)
     properties: {
       watermarkId,
       contentHash,
@@ -215,16 +228,9 @@ export const generateMetadata = async (file, options = {}) => {
       chain: 'Story Aeneid Testnet',
       chainId: 1315,
     },
-    
-    // Story Protocol IP registration fields
-    ipMetadata: {
-      ipMetadataURI: '', // Will be filled with IPFS URL
-      ipMetadataHash: contentHash,
-      nftMetadataURI: '', // Will be filled with IPFS URL
-      nftMetadataHash: contentHash,
-      registrationDate: timestamp,
-    },
   };
+  
+  return ipMetadata;
 };
 
 /**
@@ -330,11 +336,13 @@ const binaryToString = (binary) => {
   return chars.join('').replace(/\0/g, '');
 };
 
-export default {
+const watermarkUtils = {
   embedImageWatermark,
   addVisibleWatermark,
   extractWatermark,
   generateMetadata,
   createThumbnail,
 };
+
+export default watermarkUtils;
 

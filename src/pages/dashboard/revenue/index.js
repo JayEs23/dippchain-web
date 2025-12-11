@@ -98,7 +98,7 @@ export default function RevenuePage() {
   return (
     <DashboardLayout title="Revenue">
       {/* Stats Row */}
-      <div style={{
+      <div className="revenue-stats" style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(4, 1fr)',
         gap: '16px',
@@ -167,7 +167,7 @@ export default function RevenuePage() {
 
       {/* Claim Button */}
       {stats.claimable > 0 && (
-        <div style={{
+        <div className="claim-banner" style={{
           backgroundColor: '#f0fdf4',
           border: '1px solid #bbf7d0',
           borderRadius: '12px',
@@ -267,7 +267,7 @@ export default function RevenuePage() {
           borderRadius: '12px',
           overflow: 'hidden',
         }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <table className="revenue-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ backgroundColor: '#fafafa', borderBottom: '1px solid #e5e5e5' }}>
                 <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#525252' }}>
@@ -336,8 +336,98 @@ export default function RevenuePage() {
               ))}
             </tbody>
           </table>
+
+          {/* Mobile Cards */}
+          <div className="revenue-cards">
+            {revenues.map((revenue) => (
+              <div key={revenue.id} style={{
+                padding: '16px',
+                borderBottom: '1px solid #f5f5f5',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                  <div>
+                    <SourceBadge source={revenue.source} />
+                    <div style={{ fontSize: '14px', fontWeight: '600', color: '#0a0a0a', marginTop: '8px' }}>
+                      {revenue.asset?.title || revenue.fractionalization?.tokenSymbol || '-'}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <ArrowUpRight size={14} color="#16a34a" />
+                    <span style={{ fontSize: '16px', fontWeight: '600', color: '#16a34a' }}>
+                      {formatCurrency(revenue.amount, revenue.currency)}
+                    </span>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '12px', borderTop: '1px solid #f5f5f5' }}>
+                  <div>
+                    <StatusBadge status={revenue.status} />
+                    <div style={{ fontSize: '12px', color: '#737373', marginTop: '4px' }}>
+                      {formatRelativeTime(revenue.createdAt)}
+                    </div>
+                  </div>
+                  {revenue.status === 'CLAIMABLE' && (
+                    <button
+                      onClick={() => handleClaim(revenue.id)}
+                      style={{
+                        padding: '8px 16px',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        color: 'white',
+                        backgroundColor: '#16a34a',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Claim
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
+
+      <style jsx>{`
+        .revenue-cards {
+          display: none;
+        }
+
+        @media (max-width: 1024px) {
+          .revenue-stats {
+            grid-template-columns: repeat(2, 1fr) !important;
+          }
+        }
+
+        @media (max-width: 768px) {
+          .revenue-table {
+            display: none;
+          }
+
+          .revenue-cards {
+            display: block;
+          }
+
+          .claim-banner {
+            flex-direction: column;
+            align-items: stretch !important;
+            gap: 16px;
+            text-align: center;
+          }
+
+          .claim-banner button {
+            width: 100%;
+            justify-content: center;
+          }
+        }
+
+        @media (max-width: 640px) {
+          .revenue-stats {
+            grid-template-columns: 1fr !important;
+          }
+        }
+      `}</style>
     </DashboardLayout>
   );
 }

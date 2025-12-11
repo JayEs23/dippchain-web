@@ -1,11 +1,13 @@
+'use client';
+
 import { Upload, Fingerprint, Globe, Shield, Coins } from 'lucide-react';
 
 const steps = [
-  { icon: Upload, title: 'Upload', desc: 'Upload your content' },
-  { icon: Fingerprint, title: 'Register', desc: 'Watermark + on-chain' },
-  { icon: Globe, title: 'Monitor', desc: 'AI scans the web' },
-  { icon: Shield, title: 'Detect', desc: 'Get evidence alerts' },
-  { icon: Coins, title: 'Earn', desc: 'License & royalties' },
+  { icon: Upload, title: 'Upload', desc: 'Drag-and-drop any format. We hash, watermark, and pin to IPFS automatically.' },
+  { icon: Fingerprint, title: 'Register', desc: 'Mint + register on Story Protocol in one SPG call, attach PIL terms, and open a royalty vault.' },
+  { icon: Globe, title: 'Monitor', desc: 'Sentinel scans socials, marketplaces, and the open web for lookalikes and metadata matches.' },
+  { icon: Shield, title: 'Detect', desc: 'Receive instant alerts with URLs, screenshots, hashes, and similarity scores you can trust.' },
+  { icon: Coins, title: 'Earn', desc: 'License, fractionalize, sell, and stream royalties to token holders in a single dashboard.' },
 ];
 
 export default function HowItWorks() {
@@ -17,7 +19,7 @@ export default function HowItWorks() {
           <h2 style={{ fontSize: '32px', fontWeight: '600', color: '#0a0a0a', marginBottom: '12px', letterSpacing: '-0.02em' }}>
             How It Works
           </h2>
-          <p style={{ color: '#737373' }}>Five simple steps. No blockchain experience required.</p>
+          <p style={{ color: '#737373' }}>Five simple steps. No blockchain experience required—everything is automated and guided.</p>
         </div>
 
         {/* Steps */}
@@ -53,8 +55,8 @@ export default function HowItWorks() {
                   justifyContent: 'center'
                 }}>{i + 1}</span>
               </div>
-              <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#0a0a0a', marginBottom: '4px' }}>{step.title}</h3>
-              <p style={{ fontSize: '13px', color: '#737373' }}>{step.desc}</p>
+              <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#0a0a0a', marginBottom: '6px' }}>{step.title}</h3>
+              <p style={{ fontSize: '14px', color: '#737373', lineHeight: '1.5' }}>{step.desc}</p>
             </div>
           ))}
         </div>

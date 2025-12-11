@@ -1,11 +1,12 @@
 // API Route: Get, Update, Delete Single Asset
 import prisma from '@/lib/prisma';
+import { sendSuccess, sendError, sendNotFound } from '@/lib/apiResponse';
 
 export default async function handler(req, res) {
   const { id } = req.query;
 
   if (!id) {
-    return res.status(400).json({ error: 'Asset ID is required' });
+    return sendError(res, 'Asset ID is required', 400, { code: 'MISSING_ASSET_ID' });
   }
 
   switch (req.method) {
@@ -17,7 +18,7 @@ export default async function handler(req, res) {
     case 'DELETE':
       return deleteAsset(id, res);
     default:
-      return res.status(405).json({ error: 'Method not allowed' });
+      return sendError(res, 'Method not allowed', 405, { code: 'METHOD_NOT_ALLOWED' });
   }
 }
 
@@ -49,13 +50,13 @@ async function getAsset(id, res) {
     });
 
     if (!asset) {
-      return res.status(404).json({ error: 'Asset not found' });
+      return sendNotFound(res, 'Asset');
     }
 
-    return res.status(200).json({ success: true, asset });
+    return sendSuccess(res, { asset });
   } catch (error) {
     console.error('Get asset error:', error);
-    return res.status(500).json({ error: 'Failed to fetch asset', details: error.message });
+    return sendError(res, 'Failed to fetch asset', 500, { code: 'FETCH_ERROR', details: error.message });
   }
 }
 
@@ -94,10 +95,10 @@ async function updateAsset(id, data, res) {
     console.error('Update asset error:', error);
     
     if (error.code === 'P2025') {
-      return res.status(404).json({ error: 'Asset not found' });
+      return sendNotFound(res, 'Asset');
     }
     
-    return res.status(500).json({ error: 'Failed to update asset', details: error.message });
+    return sendError(res, 'Failed to update asset', 500, { code: 'UPDATE_ERROR', details: error.message });
   }
 }
 
@@ -113,18 +114,18 @@ async function deleteAsset(id, res) {
     });
 
     if (!asset) {
-      return res.status(404).json({ error: 'Asset not found' });
+      return sendNotFound(res, 'Asset');
     }
 
     if (asset.fractionalization) {
-      return res.status(400).json({ 
-        error: 'Cannot delete fractionalized asset' 
+      return sendError(res, 'Cannot delete fractionalized asset', 400, { 
+        code: 'FRACTIONALIZED_ASSET' 
       });
     }
 
     if (asset.licenses.length > 0) {
-      return res.status(400).json({ 
-        error: 'Cannot delete asset with active licenses' 
+      return sendError(res, 'Cannot delete asset with active licenses', 400, { 
+        code: 'ACTIVE_LICENSES' 
       });
     }
 
@@ -134,13 +135,10 @@ async function deleteAsset(id, res) {
       data: { status: 'ARCHIVED' },
     });
 
-    return res.status(200).json({ 
-      success: true, 
-      message: 'Asset archived successfully' 
-    });
+    return sendSuccess(res, { message: 'Asset archived successfully' }, 'Asset archived successfully');
   } catch (error) {
     console.error('Delete asset error:', error);
-    return res.status(500).json({ error: 'Failed to delete asset', details: error.message });
+    return sendError(res, 'Failed to delete asset', 500, { code: 'DELETE_ERROR', details: error.message });
   }
 }
 

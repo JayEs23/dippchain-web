@@ -1,9 +1,18 @@
 // API Route: Create Asset in Database
 import prisma from '@/lib/prisma';
+import { 
+  sendSuccess, 
+  sendValidationError, 
+  sendConflict,
+  handlePrismaError 
+} from '@/lib/apiResponse';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return res.status(405).json({ 
+      success: false,
+      error: { message: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' }
+    });
   }
 
   try {
@@ -27,10 +36,11 @@ export default async function handler(req, res) {
 
     // Validate required fields
     if (!userId || !title || !assetType || !pinataCid) {
-      return res.status(400).json({ 
-        error: 'Missing required fields',
-        required: ['userId', 'title', 'assetType', 'pinataCid']
-      });
+      return sendValidationError(
+        res, 
+        'Missing required fields', 
+        ['userId', 'title', 'assetType', 'pinataCid']
+      );
     }
 
     // Normalize wallet address
@@ -68,17 +78,21 @@ export default async function handler(req, res) {
       }
     }
 
-    // Check for duplicate content hash
+    // Check for duplicate content hash (per user)
     if (contentHash) {
       const existing = await prisma.asset.findFirst({
-        where: { contentHash },
+        where: { 
+          contentHash,
+          userId: user.id, // Only check current user's assets
+        },
       });
       
       if (existing) {
-        return res.status(409).json({ 
-          error: 'Asset with this content already exists',
-          existingAssetId: existing.id,
-        });
+        return sendConflict(
+          res,
+          'You have already uploaded this content',
+          { existingAssetId: existing.id, assetTitle: existing.title }
+        );
       }
     }
 
@@ -104,23 +118,9 @@ export default async function handler(req, res) {
       },
     });
 
-    return res.status(201).json({
-      success: true,
-      asset,
-    });
+    return sendSuccess(res, { asset }, 'Asset created successfully', 201);
   } catch (error) {
-    console.error('Create asset error:', error);
-    
-    if (error.code === 'P2002') {
-      return res.status(409).json({ 
-        error: 'Asset already exists with this identifier' 
-      });
-    }
-    
-    return res.status(500).json({ 
-      error: 'Failed to create asset', 
-      details: error.message 
-    });
+    return handlePrismaError(res, error, 'Create asset');
   }
 }
 
