@@ -12,7 +12,8 @@ import {
   Shield, 
   Wallet,
   Settings,
-  X
+  X,
+  Briefcase
 } from 'lucide-react';
 
 const navItems = [
@@ -21,6 +22,7 @@ const navItems = [
   { name: 'Upload', href: '/dashboard/upload', icon: Upload },
   { name: 'Licenses', href: '/dashboard/licenses', icon: FileCheck },
   { name: 'Fractions', href: '/dashboard/fractions', icon: PieChart },
+  { name: 'Portfolio', href: '/dashboard/portfolio', icon: Briefcase },
   { name: 'Marketplace', href: '/dashboard/marketplace', icon: Store },
   { name: 'Governance', href: '/dashboard/governance', icon: Vote },
   { name: 'Sentinel', href: '/dashboard/sentinel', icon: Shield },

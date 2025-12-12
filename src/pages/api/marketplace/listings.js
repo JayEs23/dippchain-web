@@ -34,6 +34,7 @@ export default async function handler(req, res) {
               thumbnailUrl: true,
               assetType: true,
               storyProtocolId: true,
+              royaltyVaultAddress: true, // ✅ Include vault address
               user: {
                 select: {
                   id: true,
@@ -84,6 +85,7 @@ export default async function handler(req, res) {
                   thumbnailUrl: true,
                   assetType: true,
                   storyProtocolId: true,
+                  royaltyVaultAddress: true, // ✅ Include vault address
                 },
               },
             },

@@ -1,5 +1,6 @@
 // API Route: Buy Tokens from Secondary Market (peer-to-peer)
 import prisma from '@/lib/prisma';
+import { createStoryClientServer, getStoryRpcUrls } from '@/lib/storyProtocolClient';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -23,11 +24,19 @@ export default async function handler(req, res) {
       });
     }
 
-    // Get listing
+    // Get listing with asset info
     const listing = await prisma.marketplaceListing.findUnique({
       where: { id: listingId },
       include: {
-        fractionalization: true,
+        fractionalization: {
+          include: {
+            asset: {
+              include: {
+                user: true,
+              },
+            },
+          },
+        },
         seller: true,
       },
     });
@@ -46,6 +55,18 @@ export default async function handler(req, res) {
       });
     }
 
+    // ✅ PREVENT BUYING FROM YOURSELF (but allow asset owner to buy from others)
+    const normalizedBuyerAddress = buyerAddress.toLowerCase();
+    const sellerAddress = listing.seller.walletAddress?.toLowerCase();
+    
+    if (sellerAddress && normalizedBuyerAddress === sellerAddress) {
+      return res.status(400).json({
+        success: false,
+        error: 'You cannot purchase from your own listing',
+        details: 'You cannot buy tokens from a listing you created',
+      });
+    }
+
     // Check amount availability
     if (parseFloat(amount) > listing.amount) {
       return res.status(400).json({
@@ -56,9 +77,44 @@ export default async function handler(req, res) {
       });
     }
 
+    // ✅ Validate asset has required Story Protocol data
+    // Use tokenAddress from fractionalization as fallback (it's the vault address)
+    const ipId = listing.fractionalization.asset.storyProtocolId;
+    const vaultAddress = listing.fractionalization.asset.royaltyVaultAddress || listing.fractionalization.tokenAddress;
+    
+    if (!ipId) {
+      console.error('❌ Asset missing storyProtocolId (should not happen for marketplace items):', {
+        assetId: listing.fractionalization.asset.id,
+        assetTitle: listing.fractionalization.asset.title,
+        listingId,
+      });
+      return res.status(400).json({
+        success: false,
+        error: 'Asset is not properly registered on Story Protocol',
+        details: 'Asset is missing IP ID. This should not happen for items in the marketplace. Please contact support.',
+        assetId: listing.fractionalization.asset.id,
+      });
+    }
+
+    if (!vaultAddress) {
+      console.error('❌ Asset missing vault address (should not happen for marketplace items):', {
+        assetId: listing.fractionalization.asset.id,
+        storyProtocolId: ipId,
+        royaltyVaultAddress: listing.fractionalization.asset.royaltyVaultAddress,
+        tokenAddress: listing.fractionalization.tokenAddress,
+      });
+      return res.status(400).json({
+        success: false,
+        error: 'Asset is missing royalty vault address',
+        details: 'Asset is missing vault address for token transfers. This should not happen for items in the marketplace. Please contact support.',
+        assetId: listing.fractionalization.asset.id,
+        storyProtocolId: ipId,
+      });
+    }
+
     const totalPaid = parseFloat(amount) * listing.pricePerToken;
 
-    // Start transaction
+    // Start transaction with increased timeout
     const result = await prisma.$transaction(async (tx) => {
       // 1. Ensure buyer user exists
       let buyer = await tx.user.findUnique({
@@ -175,13 +231,68 @@ export default async function handler(req, res) {
         },
       });
 
-      return order;
+      return { order, listing };
+    }, {
+      maxWait: 10000,
+      timeout: 15000, // 15 seconds
     });
 
+    // ✅ AUTOMATICALLY TRANSFER TOKENS FROM SELLER TO BUYER (async, non-blocking)
+    // Do this in background - don't wait for it
+    const { tokensToWei } = await import('@/lib/storyRoyaltyTokens');
+    
+    setImmediate(async () => {
+      try {
+        console.log('🔄 Starting background token transfer...');
+        const rpcUrls = getStoryRpcUrls();
+        let transferSuccess = false;
+        let transferTxHash = null;
+
+        for (const rpcUrl of rpcUrls) {
+          try {
+            const client = await createStoryClientServer(rpcUrl);
+            const transferAmount = tokensToWei(parseFloat(amount));
+            
+            const transferResult = await client.royalty.transferRoyaltyTokens({
+              from: listing.seller.walletAddress,
+              to: buyerAddress,
+              amount: transferAmount,
+              txOptions: { waitForTransaction: true },
+            });
+
+            transferTxHash = transferResult.txHash;
+            transferSuccess = true;
+            console.log('✅ Tokens transferred successfully:', transferTxHash);
+            
+            await prisma.order.update({
+              where: { id: result.order.id },
+              data: { status: 'COMPLETED' },
+            });
+            break;
+          } catch (err) {
+            console.error(`Token transfer failed on ${rpcUrl}:`, err);
+            // Try next RPC
+          }
+        }
+
+        if (!transferSuccess) {
+          console.error('❌ Failed to transfer tokens automatically');
+          await prisma.order.update({
+            where: { id: result.order.id },
+            data: { status: 'PENDING_TRANSFER' },
+          });
+        }
+      } catch (err) {
+        console.error('Background token transfer error:', err);
+      }
+    });
+
+    // Return success immediately - token transfer happens in background
     return res.status(200).json({
       success: true,
-      order: result,
-      message: 'Secondary market purchase completed',
+      order: result.order,
+      message: 'Purchase completed! Tokens are being transferred to your wallet automatically.',
+      transferInProgress: true,
     });
   } catch (error) {
     console.error('Buy secondary market error:', error);

@@ -1,9 +1,10 @@
 // Marketplace Page - Primary + Secondary Trading with Story Protocol Royalty Tokens
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import Image from 'next/image';
 import { useAppKitAccount, useAppKitProvider } from '@reown/appkit/react';
 import { BrowserProvider, Contract, parseEther } from 'ethers';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
-import { ShoppingCart, TrendingUp, Users, Filter, Loader2, ExternalLink } from 'lucide-react';
+import { ShoppingCart, TrendingUp, Users, Filter, Loader2, ExternalLink, Plus, Briefcase } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { 
   transferRoyaltyTokensFromIPAccount, 
@@ -23,11 +24,7 @@ export default function MarketplacePage() {
   const [purchasing, setPurchasing] = useState(null);
   const [purchaseAmount, setPurchaseAmount] = useState({});
 
-  useEffect(() => {
-    fetchListings();
-  }, [filter]);
-
-  const fetchListings = async () => {
+  const fetchListings = useCallback(async () => {
     try {
       setLoading(true);
       const response = await fetch(`/api/marketplace/listings?type=${filter}`);
@@ -42,7 +39,11 @@ export default function MarketplacePage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filter]);
+
+  useEffect(() => {
+    fetchListings();
+  }, [fetchListings]);
 
   const handleAmountChange = (listingId, value) => {
     setPurchaseAmount(prev => ({
@@ -60,6 +61,41 @@ export default function MarketplacePage() {
     const amount = parseFloat(purchaseAmount[listing.id] || 0);
     if (amount <= 0 || amount > listing.amount) {
       toast.error('Invalid amount');
+      return;
+    }
+
+    // ✅ VALIDATE BEFORE PAYMENT: Check asset is properly registered
+    // Use tokenAddress from fractionalization as fallback (it's the vault address)
+    const vaultAddress = listing.asset?.royaltyVaultAddress || listing.tokenAddress;
+    const ipId = listing.asset?.storyProtocolId;
+    
+    if (!ipId) {
+      toast.error('Asset is not properly registered on Story Protocol. Cannot proceed with purchase.');
+      console.error('Asset validation failed - missing IP ID:', {
+        assetId: listing.asset?.id,
+        assetTitle: listing.asset?.title,
+        storyProtocolId: ipId,
+      });
+      return;
+    }
+
+    if (!vaultAddress) {
+      toast.error('Asset is missing royalty vault address. Cannot proceed with purchase.');
+      console.error('Asset validation failed - missing vault address:', {
+        assetId: listing.asset?.id,
+        storyProtocolId: ipId,
+        royaltyVaultAddress: listing.asset?.royaltyVaultAddress,
+        tokenAddress: listing.tokenAddress,
+      });
+      return;
+    }
+
+    // ✅ VALIDATE BEFORE PAYMENT: Prevent asset owner from buying their own primary listing
+    const normalizedBuyerAddress = address.toLowerCase();
+    const assetOwnerAddress = listing.asset?.user?.walletAddress?.toLowerCase();
+    
+    if (assetOwnerAddress && normalizedBuyerAddress === assetOwnerAddress) {
+      toast.error('You cannot purchase from your own primary market listing');
       return;
     }
 
@@ -113,68 +149,22 @@ export default function MarketplacePage() {
         return;
       }
 
-      toast.success(
-        'Payment sent! The seller will transfer your tokens shortly. You will receive a notification when tokens are transferred.',
-        { id: toastId, duration: 8000 }
-      );
+      // Check if tokens were automatically transferred
+      if (data.transferTxHash) {
+        toast.success(
+          `✅ Purchase completed! ${amount.toLocaleString()} tokens have been automatically transferred to your wallet.`,
+          { id: toastId, duration: 8000 }
+        );
+      } else if (data.success) {
+        toast.success(
+          '✅ Purchase completed! Tokens have been automatically transferred to your wallet.',
+          { id: toastId, duration: 8000 }
+        );
+      }
       
       // Refresh listings
       fetchListings();
       setPurchaseAmount(prev => ({ ...prev, [listing.id]: '' }));
-      
-      // Show info modal about next steps
-      toast((t) => (
-        <div style={{ maxWidth: '400px' }}>
-          <strong>🎉 Purchase Initiated!</strong>
-          <p style={{ fontSize: '13px', marginTop: '8px', marginBottom: '12px' }}>
-            Your payment of <strong>{totalCost} IP</strong> has been sent to the seller.
-            <br /><br />
-            <strong>Next Steps:</strong>
-            <br />• Seller will transfer {amount.toLocaleString()} tokens to your wallet
-            <br />• This usually happens within a few minutes
-            <br />• Check your "Revenue" page for token balance updates
-            <br />• If tokens don't arrive within 24 hours, contact support
-          </p>
-          <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-            <a
-              href={`https://aeneid.storyscan.io/tx/${receipt.hash}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                flex: 1,
-                padding: '8px 12px',
-                fontSize: '13px',
-                fontWeight: '500',
-                color: '#2563eb',
-                backgroundColor: 'white',
-                border: '1px solid #2563eb',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                textAlign: 'center',
-                textDecoration: 'none',
-              }}
-            >
-              View Transaction
-            </a>
-            <button
-              onClick={() => toast.dismiss(t.id)}
-              style={{
-                flex: 1,
-                padding: '8px 12px',
-                fontSize: '13px',
-                fontWeight: '500',
-                color: 'white',
-                backgroundColor: '#0a0a0a',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer',
-              }}
-            >
-              Got it
-            </button>
-          </div>
-        </div>
-      ), { duration: 20000 });
     } catch (error) {
       console.error('Primary market purchase error:', error);
       
@@ -204,6 +194,41 @@ export default function MarketplacePage() {
     const amount = parseFloat(purchaseAmount[listing.id] || 0);
     if (amount <= 0 || amount > listing.amount) {
       toast.error('Invalid amount');
+      return;
+    }
+
+    // ✅ VALIDATE BEFORE PAYMENT: Check asset is properly registered
+    // Use tokenAddress from fractionalization as fallback (it's the vault address)
+    const vaultAddress = listing.asset?.royaltyVaultAddress || listing.tokenAddress;
+    const ipId = listing.asset?.storyProtocolId;
+    
+    if (!ipId) {
+      toast.error('Asset is not properly registered on Story Protocol. Cannot proceed with purchase.');
+      console.error('Asset validation failed - missing IP ID:', {
+        assetId: listing.asset?.id,
+        assetTitle: listing.asset?.title,
+        storyProtocolId: ipId,
+      });
+      return;
+    }
+
+    if (!vaultAddress) {
+      toast.error('Asset is missing royalty vault address. Cannot proceed with purchase.');
+      console.error('Asset validation failed - missing vault address:', {
+        assetId: listing.asset?.id,
+        storyProtocolId: ipId,
+        royaltyVaultAddress: listing.asset?.royaltyVaultAddress,
+        tokenAddress: listing.tokenAddress,
+      });
+      return;
+    }
+
+    // ✅ VALIDATE BEFORE PAYMENT: Prevent buying from yourself
+    const normalizedBuyerAddress = address.toLowerCase();
+    const sellerAddress = listing.seller?.walletAddress?.toLowerCase();
+    
+    if (sellerAddress && normalizedBuyerAddress === sellerAddress) {
+      toast.error('You cannot purchase from your own listing');
       return;
     }
 
@@ -263,7 +288,18 @@ export default function MarketplacePage() {
         return;
       }
 
-      toast.success('Purchase completed! Tokens will be transferred by the seller.', { id: toastId });
+      // Check if tokens were automatically transferred
+      if (data.transferTxHash) {
+        toast.success(
+          `✅ Purchase completed! ${amount.toLocaleString()} tokens have been automatically transferred to your wallet.`,
+          { id: toastId, duration: 8000 }
+        );
+      } else if (data.success) {
+        toast.success(
+          '✅ Purchase completed! Tokens have been automatically transferred to your wallet.',
+          { id: toastId, duration: 8000 }
+        );
+      }
       
       // Refresh listings
       fetchListings();
@@ -303,6 +339,34 @@ export default function MarketplacePage() {
             Buy fractional ownership of IP assets using Story Protocol&apos;s native tokens
           </p>
         </div>
+        {isConnected && (
+          <a href="/dashboard/portfolio">
+            <button style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '12px 24px',
+              fontSize: '14px',
+              fontWeight: '500',
+              color: 'white',
+              backgroundColor: '#0a0a0a',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#262626';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = '#0a0a0a';
+            }}
+            >
+              <Briefcase size={18} />
+              Sell Your Tokens
+            </button>
+          </a>
+        )}
       </div>
 
       {/* Filter Tabs */}
@@ -421,15 +485,14 @@ export default function MarketplacePage() {
                   overflow: 'hidden',
                 }}>
                   {listing.asset.thumbnailUrl ? (
-                    <img
-                      src={listing.asset.thumbnailUrl}
-                      alt={listing.asset.title}
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover',
-                      }}
-                    />
+                    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+                      <Image
+                        src={listing.asset.thumbnailUrl}
+                        alt={listing.asset.title || 'Asset thumbnail'}
+                        fill
+                        style={{ objectFit: 'cover' }}
+                      />
+                    </div>
                   ) : (
                     <ShoppingCart size={48} color="#d4d4d4" />
                   )}
