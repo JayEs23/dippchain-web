@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter } from 'next/router';
+import { useState, useEffect } from 'react';
 import { 
   LayoutDashboard, 
   FolderOpen,
@@ -32,7 +33,10 @@ const navItems = [
 
 export default function Sidebar({ mobileMenuOpen = false, onCloseMobile = () => {} }) {
   const router = useRouter();
-  const currentPath = router.pathname;
+  
+  // Use router.asPath which is more reliable for SSR/client matching
+  // Fallback to pathname if asPath is not available
+  const currentPath = router.asPath?.split('?')[0] || router.pathname || '/dashboard';
 
   return (
     <>
@@ -106,7 +110,11 @@ export default function Sidebar({ mobileMenuOpen = false, onCloseMobile = () => 
         {/* Navigation */}
         <nav style={{ flex: 1, padding: '20px 12px', overflowY: 'auto' }}>
           {navItems.map((item) => {
-            const isActive = currentPath === item.href || (item.href !== '/dashboard' && currentPath.startsWith(item.href));
+            // Compute isActive safely - handle both exact match and prefix match
+            const isActive = router.isReady && (
+              currentPath === item.href || 
+              (item.href !== '/dashboard' && currentPath.startsWith(item.href))
+            );
             return (
               <Link
                 key={item.name}
