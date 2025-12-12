@@ -131,6 +131,71 @@ export default async function handler(req, res) {
       console.warn('⚠️  Warning: tokenId missing from SPG registration response');
     }
 
+    // ✅ Mint a license token to activate the royalty vault
+    // IMPORTANT: Just attaching license terms doesn't create the vault - minting a license token does!
+    console.log('🔍 Minting license token to activate royalty vault...');
+    let vaultAddress = null;
+    let licenseTokenMintTxHash = null;
+    const rpcUrlsForVault = getStoryRpcUrls();
+    const licenseTermsId = result.licenseTermsId?.toString() || '1'; // Use the license terms ID from SPG registration
+    
+    // Mint 1 license token to trigger vault deployment
+    for (const rpcUrl of rpcUrlsForVault) {
+      try {
+        const vaultClient = await createStoryClientServer(rpcUrl);
+        
+        // Mint 1 license token - this triggers the vault deployment
+        console.log(`Minting license token with terms ID: ${licenseTermsId}`);
+        const mintResult = await vaultClient.license.mintLicenseTokens({
+          licensorIpId: result.ipId,
+          licenseTermsId: licenseTermsId,
+          amount: 1,
+          receiver: vaultClient.config?.account?.address, // Mint to server wallet
+          txOptions: { waitForTransaction: true },
+        });
+        
+        licenseTokenMintTxHash = mintResult?.txHash || mintResult?.hash || null;
+        console.log('✅ License token minted, transaction:', licenseTokenMintTxHash);
+        
+        // Now fetch the vault address (with retries since RPC may need time to index)
+        for (let attempt = 0; attempt < 5; attempt++) {
+          if (attempt > 0) {
+            // Wait progressively longer: 2s, 4s, 6s, 8s
+            const delay = attempt * 2000;
+            console.log(`Waiting ${delay}ms before vault lookup attempt ${attempt + 1}...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+          
+          try {
+            vaultAddress = await vaultClient.royalty.getRoyaltyVaultAddress(result.ipId);
+            
+            if (vaultAddress && vaultAddress !== '0x0000000000000000000000000000000000000000') {
+              console.log('✅ Royalty vault address found:', vaultAddress);
+              break;
+            }
+          } catch (vaultErr) {
+            console.warn(`Vault lookup attempt ${attempt + 1} failed:`, vaultErr?.message);
+          }
+        }
+        
+        if (vaultAddress && vaultAddress !== '0x0000000000000000000000000000000000000000') {
+          break;
+        }
+      } catch (mintErr) {
+        console.warn(`License token mint failed on ${rpcUrl}:`, mintErr?.message);
+        // Try next RPC
+      }
+    }
+    
+    // Only save non-zero vault address
+    if (!vaultAddress || vaultAddress === '0x0000000000000000000000000000000000000000') {
+      console.warn('⚠️  Warning: Could not fetch royalty vault address after minting license token.');
+      console.warn('   The vault should be available shortly. You can fetch it later via /api/fractions/vault');
+      vaultAddress = null; // Set to null instead of zero address
+    } else {
+      console.log('✅ Royalty vault activated and address saved:', vaultAddress);
+    }
+
     // Save Story Protocol response for debugging
     await saveStoryResponse('register-ip', result, {
       assetId,
@@ -144,7 +209,10 @@ export default async function handler(req, res) {
     });
 
     // Update asset in database with SPG NFT details
-    // Ensure tokenId is always saved (use null if missing but log warning)
+    // ✅ Save NFT ID, license terms ID, and royalty vault address for fractionalization
+    // Note: licenseTermsId might be undefined from SPG response, but we can get it from the mint transaction
+    const licenseTermsIdToSave = result.licenseTermsId?.toString() || licenseTermsId || null;
+    
     const updatedAsset = await prisma.asset.update({
       where: { id: assetId },
       data: {
@@ -152,6 +220,8 @@ export default async function handler(req, res) {
         storyProtocolTxHash: result.txHash,
         storyNftTokenId: result.tokenId?.toString() || null,
         storyNftContract: result.nftContract || null,
+        licenseTermsId: licenseTermsIdToSave, // ✅ Save license terms ID (from SPG or mint)
+        royaltyVaultAddress: vaultAddress || null, // ✅ Save vault address (ERC-20 token contract)
         dippchainTokenId: result.tokenId?.toString() || null, // legacy field
         registeredOnChain: true,
         status: 'REGISTERED',
@@ -166,7 +236,9 @@ export default async function handler(req, res) {
       tokenId: result.tokenId?.toString(),
       nftContract: result.nftContract,
       licenseTermsId: result.licenseTermsId?.toString(),
+      royaltyVaultAddress: vaultAddress, // ✅ Include vault address in response
       txHash: result.txHash,
+      licenseTokenMintTxHash: licenseTokenMintTxHash, // ✅ Transaction that activated the vault
       nftExplorerUrl: `https://aeneid.storyscan.io/token/${result.nftContract}/instance/${result.tokenId?.toString()}`,
       asset: {
         id: updatedAsset.id,
@@ -174,8 +246,11 @@ export default async function handler(req, res) {
         status: updatedAsset.status,
       },
       explorerUrl: `https://aeneid.storyscan.io/address/${result.ipId}`,
-      royaltyVaultCreated: true,
-      message: 'IP Asset registered successfully with license terms attached',
+      royaltyVaultCreated: !!vaultAddress,
+      vaultAddressFetched: !!vaultAddress,
+      message: vaultAddress 
+        ? 'IP Asset registered successfully. License token minted to activate vault. Royalty vault address saved.'
+        : 'IP Asset registered successfully. License token minted. Royalty vault address will be available shortly.',
     }, 'IP Asset registered successfully');
 
   } catch (error) {

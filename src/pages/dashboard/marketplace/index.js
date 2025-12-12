@@ -293,14 +293,14 @@ export default function MarketplacePage() {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: '24px',
+        marginBottom: '32px',
       }}>
         <div>
-          <h1 style={{ fontSize: '24px', fontWeight: '600', color: '#0a0a0a', marginBottom: '4px' }}>
+          <h1 style={{ fontSize: '28px', fontWeight: '600', color: '#0a0a0a', marginBottom: '8px', letterSpacing: '-0.02em' }}>
             Royalty Token Marketplace
           </h1>
-          <p style={{ fontSize: '14px', color: '#737373' }}>
-            Buy fractional ownership of IP assets using Story Protocol's native tokens
+          <p style={{ fontSize: '15px', color: '#737373', lineHeight: '1.5' }}>
+            Buy fractional ownership of IP assets using Story Protocol&apos;s native tokens
           </p>
         </div>
       </div>
@@ -308,9 +308,10 @@ export default function MarketplacePage() {
       {/* Filter Tabs */}
       <div style={{
         display: 'flex',
-        gap: '8px',
-        marginBottom: '24px',
+        gap: '4px',
+        marginBottom: '32px',
         borderBottom: '1px solid #e5e5e5',
+        paddingBottom: '4px',
       }}>
         {[
           { value: 'all', label: 'All Markets', icon: ShoppingCart },
@@ -324,15 +325,26 @@ export default function MarketplacePage() {
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
-              padding: '12px 20px',
+              padding: '12px 24px',
               fontSize: '14px',
               fontWeight: '500',
               color: filter === tab.value ? '#0a0a0a' : '#737373',
               backgroundColor: 'transparent',
               border: 'none',
-              borderBottom: filter === tab.value ? '2px solid #0a0a0a' : '2px solid transparent',
+              borderBottom: filter === tab.value ? '3px solid #0a0a0a' : '3px solid transparent',
               cursor: 'pointer',
-              transition: 'all 0.2s',
+              transition: 'all 0.2s ease',
+              position: 'relative',
+            }}
+            onMouseEnter={(e) => {
+              if (filter !== tab.value) {
+                e.currentTarget.style.color = '#0a0a0a';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (filter !== tab.value) {
+                e.currentTarget.style.color = '#737373';
+              }
             }}
           >
             <tab.icon size={16} />
@@ -370,8 +382,8 @@ export default function MarketplacePage() {
       ) : (
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
-          gap: '24px',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
+          gap: '28px',
         }}>
           {listings.map((listing) => {
             const amount = parseFloat(purchaseAmount[listing.id] || 0);
@@ -384,17 +396,19 @@ export default function MarketplacePage() {
                 style={{
                   backgroundColor: 'white',
                   border: '1px solid #e5e5e5',
-                  borderRadius: '12px',
+                  borderRadius: '16px',
                   overflow: 'hidden',
-                  transition: 'all 0.2s',
+                  transition: 'all 0.2s ease',
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.borderColor = '#0a0a0a';
-                  e.currentTarget.style.transform = 'translateY(-2px)';
+                  e.currentTarget.style.transform = 'translateY(-4px)';
+                  e.currentTarget.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.1)';
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.borderColor = '#e5e5e5';
                   e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = 'none';
                 }}
               >
                 {/* Asset Image */}
@@ -422,19 +436,19 @@ export default function MarketplacePage() {
                 </div>
 
                 {/* Content */}
-                <div style={{ padding: '20px' }}>
+                <div style={{ padding: '24px' }}>
                   {/* Market Type Badge */}
                   <div style={{
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '6px',
-                    padding: '4px 10px',
+                    padding: '6px 12px',
                     backgroundColor: isPrimary ? '#eff6ff' : '#fefce8',
                     color: isPrimary ? '#1e40af' : '#854d0e',
                     fontSize: '11px',
                     fontWeight: '600',
-                    borderRadius: '6px',
-                    marginBottom: '12px',
+                    borderRadius: '8px',
+                    marginBottom: '16px',
                     textTransform: 'uppercase',
                     letterSpacing: '0.5px',
                   }}>
@@ -444,31 +458,33 @@ export default function MarketplacePage() {
 
                   {/* Title */}
                   <h3 style={{
-                    fontSize: '16px',
+                    fontSize: '17px',
                     fontWeight: '600',
                     color: '#0a0a0a',
                     marginBottom: '8px',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
+                    lineHeight: '1.4',
                   }}>
                     {listing.asset.title}
                   </h3>
 
                   {/* Seller */}
-                  <p style={{ fontSize: '13px', color: '#737373', marginBottom: '16px' }}>
-                    by <strong>{listing.seller.displayName || 'Creator'}</strong>
+                  <p style={{ fontSize: '13px', color: '#737373', marginBottom: '20px', lineHeight: '1.5' }}>
+                    by <strong style={{ color: '#0a0a0a' }}>{listing.seller.displayName || 'Creator'}</strong>
                   </p>
 
                   {/* Stats */}
                   <div style={{
                     display: 'grid',
                     gridTemplateColumns: '1fr 1fr',
-                    gap: '12px',
-                    padding: '12px',
-                    backgroundColor: '#f5f5f5',
-                    borderRadius: '8px',
-                    marginBottom: '16px',
+                    gap: '16px',
+                    padding: '16px',
+                    backgroundColor: '#fafafa',
+                    borderRadius: '12px',
+                    marginBottom: '20px',
+                    border: '1px solid #f5f5f5',
                   }}>
                     <div>
                       <p style={{ fontSize: '11px', color: '#737373', marginBottom: '2px' }}>Available</p>
@@ -485,13 +501,13 @@ export default function MarketplacePage() {
                   </div>
 
                   {/* Purchase Input */}
-                  <div style={{ marginBottom: '12px' }}>
+                  <div style={{ marginBottom: '16px' }}>
                     <label style={{
                       display: 'block',
-                      fontSize: '12px',
+                      fontSize: '13px',
                       fontWeight: '500',
-                      color: '#737373',
-                      marginBottom: '6px',
+                      color: '#0a0a0a',
+                      marginBottom: '8px',
                     }}>
                       Amount to buy
                     </label>
@@ -506,10 +522,22 @@ export default function MarketplacePage() {
                       disabled={purchasing === listing.id}
                       style={{
                         width: '100%',
-                        padding: '10px',
+                        padding: '12px 14px',
                         fontSize: '14px',
                         border: '1px solid #e5e5e5',
-                        borderRadius: '6px',
+                        borderRadius: '10px',
+                        transition: 'all 0.2s ease',
+                        backgroundColor: purchasing === listing.id ? '#f5f5f5' : 'white',
+                      }}
+                      onFocus={(e) => {
+                        if (purchasing !== listing.id) {
+                          e.currentTarget.style.borderColor = '#0a0a0a';
+                          e.currentTarget.style.boxShadow = '0 0 0 3px rgba(10, 10, 10, 0.05)';
+                        }
+                      }}
+                      onBlur={(e) => {
+                        e.currentTarget.style.borderColor = '#e5e5e5';
+                        e.currentTarget.style.boxShadow = 'none';
                       }}
                     />
                     {amount > 0 && (
@@ -525,18 +553,29 @@ export default function MarketplacePage() {
                     disabled={purchasing === listing.id || !amount || amount > listing.amount}
                     style={{
                       width: '100%',
-                      padding: '12px',
+                      padding: '14px',
                       fontSize: '14px',
-                      fontWeight: '500',
+                      fontWeight: '600',
                       color: 'white',
                       backgroundColor: (purchasing === listing.id || !amount || amount > listing.amount) ? '#a3a3a3' : '#0a0a0a',
                       border: 'none',
-                      borderRadius: '8px',
+                      borderRadius: '10px',
                       cursor: (purchasing === listing.id || !amount || amount > listing.amount) ? 'not-allowed' : 'pointer',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       gap: '8px',
+                      transition: 'all 0.2s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!(purchasing === listing.id || !amount || amount > listing.amount)) {
+                        e.currentTarget.style.transform = 'translateY(-1px)';
+                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = 'none';
                     }}
                   >
                     {purchasing === listing.id ? (

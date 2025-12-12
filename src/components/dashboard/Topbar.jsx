@@ -3,12 +3,20 @@
 import { useMemo, useState } from 'react';
 import { Bell, Plus, Menu } from 'lucide-react';
 import Link from 'next/link';
-import { useAccount } from 'wagmi';
+import { useAccount, useBalance } from 'wagmi';
+import { formatEther } from 'viem';
 import toast from 'react-hot-toast';
 import { clearEmailSession, getEmailSession } from '@/lib/authSession';
 
 export default function Topbar({ title = 'Dashboard', onMobileMenuToggle = () => {} }) {
   const { address, isConnected } = useAccount();
+  const { data: balance, isLoading: balanceLoading } = useBalance({
+    address: address,
+    query: {
+      refetchInterval: 5000, // Refetch every 5 seconds
+    },
+  });
+  
   const [emailSession, setEmailSession] = useState(() =>
     typeof window !== 'undefined' ? getEmailSession() : null
   );
@@ -18,6 +26,13 @@ export default function Topbar({ title = 'Dashboard', onMobileMenuToggle = () =>
     if (emailSession) return emailSession;
     return 'Not connected';
   }, [isConnected, address, emailSession]);
+
+  const formattedBalance = useMemo(() => {
+    if (!balance || balanceLoading) return '...';
+    const value = parseFloat(formatEther(balance.value));
+    if (value < 0.0001) return '< 0.0001';
+    return value.toFixed(4);
+  }, [balance, balanceLoading]);
 
   const handleLogout = () => {
     clearEmailSession();
@@ -69,37 +84,67 @@ export default function Topbar({ title = 'Dashboard', onMobileMenuToggle = () =>
             display: 'inline-flex',
             alignItems: 'center',
             gap: '6px',
-            padding: '8px 14px',
+            padding: '10px 16px',
             fontSize: '13px',
-            fontWeight: '500',
+            fontWeight: '600',
             color: 'white',
             backgroundColor: '#0a0a0a',
-            borderRadius: '6px',
+            borderRadius: '8px',
             textDecoration: 'none',
-            whiteSpace: 'nowrap'
+            whiteSpace: 'nowrap',
+            transition: 'all 0.2s ease'
           }}
           className="upload-btn"
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = 'translateY(-1px)';
+            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = 'none';
+          }}
         >
           <Plus style={{ width: '14px', height: '14px' }} />
           <span className="upload-text">Upload Asset</span>
         </Link>
 
-        {/* Identity pill */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          padding: '8px 12px',
-          border: '1px solid #e5e5e5',
-          borderRadius: '999px',
-          backgroundColor: '#f9fafb',
-          maxWidth: '220px',
-          overflow: 'hidden'
-        }}>
-          <span style={{ fontSize: '12px', color: '#111827', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {identityLabel}
-          </span>
-          {(emailSession && !isConnected) && (
+        {/* Identity pill with balance */}
+        {isConnected && address && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '6px 12px',
+            border: '1px solid #e5e5e5',
+            borderRadius: '999px',
+            backgroundColor: '#f9fafb',
+          }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
+              <span style={{ fontSize: '11px', color: '#6b7280', fontWeight: 500 }}>
+                {formattedBalance} {balance?.symbol || 'IP'}
+              </span>
+              <span style={{ fontSize: '12px', color: '#111827', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                {identityLabel}
+              </span>
+            </div>
+          </div>
+        )}
+        
+        {!isConnected && emailSession && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '8px 12px',
+            border: '1px solid #e5e5e5',
+            borderRadius: '999px',
+            backgroundColor: '#f9fafb',
+            maxWidth: '220px',
+            overflow: 'hidden'
+          }}>
+            <span style={{ fontSize: '12px', color: '#111827', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {identityLabel}
+            </span>
             <button
               onClick={handleLogout}
               style={{
@@ -113,8 +158,8 @@ export default function Topbar({ title = 'Dashboard', onMobileMenuToggle = () =>
             >
               Clear
             </button>
-          )}
-        </div>
+          </div>
+        )}
 
         <button style={{
           width: '36px',
@@ -131,7 +176,10 @@ export default function Topbar({ title = 'Dashboard', onMobileMenuToggle = () =>
           <Bell style={{ width: '16px', height: '16px', color: '#525252' }} />
         </button>
 
-        <appkit-button size="sm" />
+        {/* Only show appkit-button if wallet is not connected (fallback) */}
+        {!isConnected && !emailSession && (
+          <appkit-button size="sm" />
+        )}
       </div>
 
       <style jsx>{`

@@ -181,15 +181,15 @@ export default function Dashboard() {
       <style jsx>{`
         .stats-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-          gap: 16px;
-          margin-bottom: 32px;
+          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+          gap: 20px;
+          margin-bottom: 40px;
         }
 
         .dashboard-content {
           display: grid;
           grid-template-columns: 1fr;
-          gap: 24px;
+          gap: 28px;
         }
 
         @media (min-width: 768px) {
@@ -201,37 +201,53 @@ export default function Dashboard() {
         @media (max-width: 640px) {
           .stats-grid {
             grid-template-columns: 1fr;
+            gap: 16px;
+            margin-bottom: 32px;
+          }
+          
+          .dashboard-content {
+            gap: 20px;
           }
         }
 
         .card {
           background-color: white;
           border: 1px solid #e5e5e5;
-          border-radius: 8px;
+          border-radius: 12px;
           overflow: hidden;
+          transition: all 0.2s ease;
+        }
+
+        .card:hover {
+          border-color: #d4d4d4;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
         }
 
         .card-header {
-          padding: 16px 20px;
-          border-bottom: 1px solid #e5e5e5;
+          padding: 20px 24px;
+          border-bottom: 1px solid #f5f5f5;
           display: flex;
           justify-content: space-between;
           align-items: center;
           flex-wrap: wrap;
-          gap: 8px;
+          gap: 12px;
+          background-color: #fafafa;
         }
 
         .card-header h2 {
-          font-size: 14px;
+          font-size: 15px;
           font-weight: 600;
           color: #0a0a0a;
           margin: 0;
+          letter-spacing: -0.01em;
         }
 
         .view-all-link {
           font-size: 13px;
           color: #525252;
           text-decoration: none;
+          font-weight: 500;
+          transition: color 0.2s ease;
         }
 
         .view-all-link:hover {
@@ -239,15 +255,21 @@ export default function Dashboard() {
         }
 
         .card-body {
-          min-height: 100px;
+          min-height: 120px;
         }
 
         .list-item {
-          padding: 14px 20px;
+          padding: 16px 24px;
           display: flex;
           justify-content: space-between;
           align-items: center;
-          gap: 12px;
+          gap: 16px;
+          transition: background-color 0.15s ease;
+          cursor: pointer;
+        }
+
+        .list-item:hover {
+          background-color: #fafafa;
         }
 
         .item-title {
@@ -255,12 +277,14 @@ export default function Dashboard() {
           font-weight: 500;
           color: #0a0a0a;
           word-break: break-word;
+          line-height: 1.4;
         }
 
         .item-subtitle {
           font-size: 12px;
           color: #737373;
-          margin-top: 2px;
+          margin-top: 4px;
+          line-height: 1.4;
         }
 
         .alert-content {

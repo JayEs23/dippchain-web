@@ -65,6 +65,8 @@ model Asset {
   storyProtocolTxHash String?
   storyNftTokenId     String?
   storyNftContract    String?
+  licenseTermsId      String? // Story Protocol license terms ID
+  royaltyVaultAddress String? // Story Protocol royalty vault (ERC-20 token) address
   dippchainTokenId    String?
   dippchainTxHash     String?
   registeredOnChain   Boolean @default(false)

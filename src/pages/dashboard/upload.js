@@ -898,36 +898,62 @@ export default function UploadPage() {
       <div style={{
         display: 'flex',
         justifyContent: 'center',
-        gap: '8px',
-        marginBottom: '32px',
+        alignItems: 'center',
+        gap: '12px',
+        marginBottom: '40px',
         padding: '0 20px',
+        flexWrap: 'wrap',
       }}>
         {STEPS.map((step, index) => (
           <div key={step.id} style={{ display: 'flex', alignItems: 'center' }}>
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '8px',
-              padding: '8px 16px',
-              borderRadius: '8px',
+              gap: '10px',
+              padding: '10px 20px',
+              borderRadius: '10px',
               backgroundColor: index <= currentStep ? '#0a0a0a' : '#f5f5f5',
               color: index <= currentStep ? 'white' : '#737373',
               fontSize: '13px',
               fontWeight: '500',
+              transition: 'all 0.2s ease',
+              border: index === currentStep ? '2px solid #0a0a0a' : '2px solid transparent',
             }}>
               {index < currentStep ? (
-                <Check size={14} />
+                <div style={{
+                  width: '20px',
+                  height: '20px',
+                  borderRadius: '50%',
+                  backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
+                  <Check size={12} />
+                </div>
               ) : (
-                <span>{index + 1}</span>
+                <div style={{
+                  width: '20px',
+                  height: '20px',
+                  borderRadius: '50%',
+                  backgroundColor: index === currentStep ? 'rgba(255, 255, 255, 0.2)' : 'transparent',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: '600',
+                }}>
+                  {index + 1}
+                </div>
               )}
               <span>{step.label}</span>
             </div>
             {index < STEPS.length - 1 && (
               <div style={{
-                width: '24px',
+                width: '32px',
                 height: '2px',
                 backgroundColor: index < currentStep ? '#0a0a0a' : '#e5e5e5',
-                margin: '0 4px',
+                margin: '0 8px',
+                transition: 'background-color 0.2s ease',
               }} />
             )}
           </div>
@@ -939,8 +965,9 @@ export default function UploadPage() {
         width: '100%',
         backgroundColor: 'white',
         border: '1px solid #e5e5e5',
-        borderRadius: '12px',
-        padding: '32px 24px',
+        borderRadius: '16px',
+        padding: '40px 32px',
+        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
       }}>
         {/* Step 1: File Selection */}
         {currentStep <= 1 && (
@@ -1136,17 +1163,18 @@ export default function UploadPage() {
         {/* Step 2.5: Processing Progress Display */}
         {currentStep === 2 && processing && (
           <div style={{
-            padding: '32px',
+            padding: '40px',
             backgroundColor: '#fafafa',
-            borderRadius: '12px',
+            borderRadius: '16px',
             border: '1px solid #e5e5e5',
           }}>
             <h3 style={{ 
-              fontSize: '16px', 
+              fontSize: '18px', 
               fontWeight: '600', 
               color: '#0a0a0a', 
-              marginBottom: '24px',
+              marginBottom: '32px',
               textAlign: 'center',
+              letterSpacing: '-0.01em',
             }}>
               Processing Your Asset
             </h3>
@@ -1162,11 +1190,12 @@ export default function UploadPage() {
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '12px',
-                      padding: '12px 16px',
+                      gap: '16px',
+                      padding: '16px 20px',
                       backgroundColor: 'white',
-                      borderRadius: '8px',
+                      borderRadius: '12px',
                       border: '1px solid #e5e5e5',
+                      transition: 'all 0.2s ease',
                     }}
                   >
                     {/* Icon */}

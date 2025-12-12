@@ -1,5 +1,6 @@
 // API Route: Create or Get User on Wallet Connect
 import prisma from '@/lib/prisma';
+import { generateAvatarFromWallet, getInitials } from '@/lib/avatarGenerator';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -7,7 +8,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { walletAddress, email, displayName } = req.body;
+    const { walletAddress, email, displayName, bio } = req.body;
 
     if (!walletAddress) {
       return res.status(400).json({ error: 'Wallet address is required' });
@@ -30,13 +31,28 @@ export default async function handler(req, res) {
       });
     }
 
-    // Create new user
+    // Generate display name from wallet if not provided
+    const finalDisplayName = displayName || `User ${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`;
+    
+    // Generate avatar from wallet address (deterministic)
+    const avatarUrl = generateAvatarFromWallet(walletAddress);
+
+    // Create new user with enhanced details
     user = await prisma.user.create({
       data: {
         email: email || `${normalizedAddress}@wallet.local`,
         walletAddress: normalizedAddress,
-        displayName: displayName || `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`,
+        displayName: finalDisplayName,
+        avatar: avatarUrl,
+        bio: bio || null,
       },
+    });
+
+    console.log('✅ Created new user with avatar:', {
+      id: user.id,
+      displayName: user.displayName,
+      avatar: user.avatar,
+      walletAddress: normalizedAddress,
     });
 
     return res.status(201).json({

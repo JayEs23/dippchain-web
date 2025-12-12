@@ -35,8 +35,34 @@ function Navbar() {
 
           {/* Desktop Nav */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
-            <a href="#features" style={{ fontSize: '14px', color: '#525252', textDecoration: 'none' }}>Features</a>
-            <a href="#how-it-works" style={{ fontSize: '14px', color: '#525252', textDecoration: 'none' }}>How it Works</a>
+            <a 
+              href="#features" 
+              style={{ 
+                fontSize: '14px', 
+                color: '#525252', 
+                textDecoration: 'none',
+                fontWeight: '500',
+                transition: 'color 0.2s ease'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.color = '#0a0a0a'}
+              onMouseLeave={(e) => e.currentTarget.style.color = '#525252'}
+            >
+              Features
+            </a>
+            <a 
+              href="#how-it-works" 
+              style={{ 
+                fontSize: '14px', 
+                color: '#525252', 
+                textDecoration: 'none',
+                fontWeight: '500',
+                transition: 'color 0.2s ease'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.color = '#0a0a0a'}
+              onMouseLeave={(e) => e.currentTarget.style.color = '#525252'}
+            >
+              How it Works
+            </a>
           </div>
 
           {/* CTA */}
@@ -45,13 +71,22 @@ function Navbar() {
             <Link 
               href="/dashboard"
               style={{ 
-                padding: '8px 16px', 
+                padding: '10px 20px', 
                 fontSize: '14px', 
-                fontWeight: '500', 
+                fontWeight: '600', 
                 color: 'white', 
                 backgroundColor: '#0a0a0a', 
-                borderRadius: '6px',
-                textDecoration: 'none'
+                borderRadius: '8px',
+                textDecoration: 'none',
+                transition: 'all 0.2s ease'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-1px)';
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = 'none';
               }}
             >
               Dashboard
@@ -73,8 +108,8 @@ function Navbar() {
 
 function Footer() {
   return (
-    <footer style={{ padding: '32px 0', borderTop: '1px solid #e5e5e5' }}>
-      <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+    <footer style={{ padding: '48px 0', borderTop: '1px solid #e5e5e5', backgroundColor: '#fafafa' }}>
+      <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '24px' }}>
         {/* Logo */}
         <Link href="/" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }}>
           <Image 
@@ -87,14 +122,28 @@ function Footer() {
         </Link>
 
         {/* Links */}
-        <div style={{ display: 'flex', gap: '24px', fontSize: '13px', color: '#737373' }}>
-          <a href="#features" style={{ color: 'inherit', textDecoration: 'none' }}>Features</a>
-          <Link href="/dashboard" style={{ color: 'inherit', textDecoration: 'none' }}>Dashboard</Link>
+        <div style={{ display: 'flex', gap: '32px', fontSize: '14px', color: '#737373', fontWeight: '500' }}>
+          <a 
+            href="#features" 
+            style={{ color: 'inherit', textDecoration: 'none', transition: 'color 0.2s ease' }}
+            onMouseEnter={(e) => e.currentTarget.style.color = '#0a0a0a'}
+            onMouseLeave={(e) => e.currentTarget.style.color = '#737373'}
+          >
+            Features
+          </a>
+          <Link 
+            href="/dashboard" 
+            style={{ color: 'inherit', textDecoration: 'none', transition: 'color 0.2s ease' }}
+            onMouseEnter={(e) => e.currentTarget.style.color = '#0a0a0a'}
+            onMouseLeave={(e) => e.currentTarget.style.color = '#737373'}
+          >
+            Dashboard
+          </Link>
         </div>
 
         {/* Story Protocol */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '13px', color: '#a3a3a3' }}>Built on</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <span style={{ fontSize: '13px', color: '#a3a3a3', fontWeight: '500' }}>Built on</span>
           <Image 
             src="/storylogo.webp" 
             alt="Story Protocol" 

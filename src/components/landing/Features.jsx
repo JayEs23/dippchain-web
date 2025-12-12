@@ -14,25 +14,56 @@ const features = [
 
 export default function Features() {
   return (
-    <section id="features" style={{ padding: '80px 0', backgroundColor: '#fafafa' }}>
-      <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '0 24px' }}>
+    <section id="features" style={{ padding: '100px 0', backgroundColor: '#fafafa' }}>
+      <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '0 24px' }}>
         {/* Header */}
-        <div style={{ textAlign: 'center', marginBottom: '48px' }}>
-          <h2 style={{ fontSize: '32px', fontWeight: '600', color: '#0a0a0a', marginBottom: '12px', letterSpacing: '-0.02em' }}>
+        <div style={{ textAlign: 'center', marginBottom: '64px' }}>
+          <h2 style={{ fontSize: '40px', fontWeight: '600', color: '#0a0a0a', marginBottom: '16px', letterSpacing: '-0.03em' }}>
             Everything You Need
           </h2>
-          <p style={{ color: '#737373', maxWidth: '520px', margin: '0 auto', lineHeight: '1.6' }}>
+          <p style={{ fontSize: '18px', color: '#737373', maxWidth: '600px', margin: '0 auto', lineHeight: '1.7' }}>
             A complete toolkit to register, protect, license, fractionalize, and monetize your IP with Story Protocol—without juggling multiple dashboards.
           </p>
         </div>
 
         {/* Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px', backgroundColor: '#e5e5e5', border: '1px solid #e5e5e5', borderRadius: '8px', overflow: 'hidden' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px' }}>
           {features.map((f) => (
-            <div key={f.title} style={{ backgroundColor: 'white', padding: '24px' }}>
-              <f.icon style={{ width: '20px', height: '20px', color: '#0a0a0a', marginBottom: '12px' }} />
-              <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#0a0a0a', marginBottom: '6px' }}>{f.title}</h3>
-              <p style={{ fontSize: '14px', color: '#737373', lineHeight: '1.5' }}>{f.desc}</p>
+            <div 
+              key={f.title} 
+              style={{ 
+                backgroundColor: 'white', 
+                padding: '32px',
+                borderRadius: '16px',
+                border: '1px solid #e5e5e5',
+                transition: 'all 0.2s ease',
+                cursor: 'pointer'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = '#0a0a0a';
+                e.currentTarget.style.transform = 'translateY(-4px)';
+                e.currentTarget.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.08)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = '#e5e5e5';
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = 'none';
+              }}
+            >
+              <div style={{
+                width: '48px',
+                height: '48px',
+                borderRadius: '12px',
+                backgroundColor: '#f5f5f5',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: '20px'
+              }}>
+                <f.icon style={{ width: '24px', height: '24px', color: '#0a0a0a' }} />
+              </div>
+              <h3 style={{ fontSize: '17px', fontWeight: '600', color: '#0a0a0a', marginBottom: '10px', letterSpacing: '-0.01em' }}>{f.title}</h3>
+              <p style={{ fontSize: '15px', color: '#737373', lineHeight: '1.6' }}>{f.desc}</p>
             </div>
           ))}
         </div>

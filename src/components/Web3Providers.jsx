@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { wagmiAdapter, projectId } from '@/config';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createAppKit } from '@reown/appkit/react';
@@ -37,18 +38,43 @@ const metadata = {
   icons: ['/icon.png'],
 };
 
-// Initialize AppKit
-createAppKit({
-  adapters: [wagmiAdapter],
-  projectId: projectId || 'demo',
-  networks: [aeneid],
-  defaultNetwork: aeneid,
-  metadata,
-  features: { analytics: false },
-});
-
 export default function Web3Providers({ children, cookies }) {
   const initialState = cookieToInitialState(wagmiAdapter.wagmiConfig, cookies);
+
+  // Initialize AppKit only once on client side after mount
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    // Check if AppKit is already initialized
+    if (window.__APPKIT_INITIALIZED__) {
+      return;
+    }
+
+    try {
+      createAppKit({
+        adapters: [wagmiAdapter],
+        projectId: projectId || 'demo',
+        networks: [aeneid],
+        defaultNetwork: aeneid,
+        metadata,
+        features: { 
+          analytics: false,
+          email: false, // Disable email login to avoid conflicts
+        },
+        themeMode: 'light',
+        themeVariables: {
+          '--w3m-accent': '#0a0a0a',
+          '--w3m-border-radius-master': '8px',
+        },
+      });
+      
+      // Mark as initialized
+      window.__APPKIT_INITIALIZED__ = true;
+      console.log('✅ AppKit initialized successfully');
+    } catch (error) {
+      console.error('❌ Failed to initialize AppKit:', error);
+    }
+  }, []);
 
   return (
     <WagmiProvider config={wagmiAdapter.wagmiConfig} initialState={initialState}>

@@ -25,6 +25,7 @@ const navItems = [
   { name: 'Governance', href: '/dashboard/governance', icon: Vote },
   { name: 'Sentinel', href: '/dashboard/sentinel', icon: Shield },
   { name: 'Revenue', href: '/dashboard/revenue', icon: Wallet },
+  { name: 'Settings', href: '/dashboard/settings', icon: Settings },
 ];
 
 export default function Sidebar({ mobileMenuOpen = false, onCloseMobile = () => {} }) {
@@ -101,7 +102,7 @@ export default function Sidebar({ mobileMenuOpen = false, onCloseMobile = () => 
         </div>
 
         {/* Navigation */}
-        <nav style={{ flex: 1, padding: '16px 12px', overflowY: 'auto' }}>
+        <nav style={{ flex: 1, padding: '20px 12px', overflowY: 'auto' }}>
           {navItems.map((item) => {
             const isActive = currentPath === item.href || (item.href !== '/dashboard' && currentPath.startsWith(item.href));
             return (
@@ -112,18 +113,31 @@ export default function Sidebar({ mobileMenuOpen = false, onCloseMobile = () => 
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '10px',
-                  padding: '10px 12px',
+                  gap: '12px',
+                  padding: '12px 14px',
                   marginBottom: '4px',
-                  borderRadius: '6px',
+                  borderRadius: '10px',
                   textDecoration: 'none',
                   fontSize: '14px',
                   fontWeight: isActive ? '500' : '400',
                   color: isActive ? '#0a0a0a' : '#525252',
-                  backgroundColor: isActive ? '#e5e5e5' : 'transparent'
+                  backgroundColor: isActive ? '#e5e5e5' : 'transparent',
+                  transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={(e) => {
+                  if (!isActive) {
+                    e.currentTarget.style.backgroundColor = '#f5f5f5';
+                    e.currentTarget.style.color = '#0a0a0a';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isActive) {
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                    e.currentTarget.style.color = '#525252';
+                  }
                 }}
               >
-                <item.icon style={{ width: '18px', height: '18px' }} />
+                <item.icon style={{ width: '18px', height: '18px', flexShrink: 0 }} />
                 {item.name}
               </Link>
             );
@@ -131,22 +145,31 @@ export default function Sidebar({ mobileMenuOpen = false, onCloseMobile = () => 
         </nav>
 
         {/* Bottom */}
-        <div style={{ padding: '16px 12px', borderTop: '1px solid #e5e5e5' }}>
+        <div style={{ padding: '20px 12px', borderTop: '1px solid #e5e5e5' }}>
           <Link
             href="/dashboard/settings"
             onClick={onCloseMobile}
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '10px',
-              padding: '10px 12px',
-              borderRadius: '6px',
+              gap: '12px',
+              padding: '12px 14px',
+              borderRadius: '10px',
               textDecoration: 'none',
               fontSize: '14px',
-              color: '#525252'
+              color: '#525252',
+              transition: 'all 0.15s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#f5f5f5';
+              e.currentTarget.style.color = '#0a0a0a';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+              e.currentTarget.style.color = '#525252';
             }}
           >
-            <Settings style={{ width: '18px', height: '18px' }} />
+            <Settings style={{ width: '18px', height: '18px', flexShrink: 0 }} />
             Settings
           </Link>
         </div>

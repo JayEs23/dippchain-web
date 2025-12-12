@@ -1,13 +1,14 @@
 // Assets List Page
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter } from 'next/router';
 import { useAppKitAccount } from '@reown/appkit/react';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import AssetRecoveryModal from '@/components/recovery/AssetRecoveryModal';
 import toast from 'react-hot-toast';
 import { 
-  Plus, Search, Filter, Image, Video, Music, FileText, File,
+  Plus, Search, Filter, Image as ImageIcon, Video, Music, FileText, File,
   MoreVertical, Eye, Edit, Trash2, Shield, Share2, ExternalLink,
   CheckCircle, Clock, AlertCircle
 } from 'lucide-react';
@@ -16,7 +17,7 @@ import { formatDate, formatFileSize, truncateText } from '@/lib/utils';
 const FileTypeIcon = ({ type, size = 20 }) => {
   const props = { size, strokeWidth: 1.5, color: '#737373' };
   switch (type) {
-    case 'IMAGE': return <Image {...props} />;
+    case 'IMAGE': return <ImageIcon {...props} />;
     case 'VIDEO': return <Video {...props} />;
     case 'AUDIO': return <Music {...props} />;
     case 'TEXT':
@@ -68,13 +69,9 @@ export default function AssetsPage() {
   const [cleaningUp, setCleaningUp] = useState(false);
   const [recoveryAsset, setRecoveryAsset] = useState(null);
 
-  useEffect(() => {
-    if (isConnected && address) {
-      fetchAssets();
-    }
-  }, [isConnected, address, filterType, filterStatus]);
-
-  const fetchAssets = async () => {
+  const fetchAssets = useCallback(async () => {
+    if (!address) return;
+    
     try {
       setLoading(true);
       const params = new URLSearchParams({ userId: address });
@@ -106,7 +103,13 @@ export default function AssetsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [address, filterType, filterStatus]);
+
+  useEffect(() => {
+    if (isConnected && address) {
+      fetchAssets();
+    }
+  }, [isConnected, address, fetchAssets]);
 
   const handleCleanupDrafts = async () => {
     const draftCount = assets.filter(a => a.status === 'DRAFT').length;
@@ -216,7 +219,7 @@ export default function AssetsPage() {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: '24px',
+        marginBottom: '28px',
         flexWrap: 'wrap',
         gap: '16px',
       }}>
@@ -225,21 +228,31 @@ export default function AssetsPage() {
           <div style={{
             position: 'relative',
             flex: 1,
-            maxWidth: '320px',
+            maxWidth: '360px',
           }}>
-            <Search size={16} color="#737373" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+            <Search size={18} color="#737373" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', zIndex: 1 }} />
             <input
               type="text"
-              placeholder="Search assets..."
+              placeholder="Search assets by title..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               style={{
                 width: '100%',
-                padding: '10px 12px 10px 36px',
+                padding: '12px 14px 12px 42px',
                 fontSize: '14px',
                 border: '1px solid #e5e5e5',
-                borderRadius: '8px',
+                borderRadius: '10px',
                 outline: 'none',
+                transition: 'all 0.2s ease',
+                backgroundColor: 'white',
+              }}
+              onFocus={(e) => {
+                e.currentTarget.style.borderColor = '#0a0a0a';
+                e.currentTarget.style.boxShadow = '0 0 0 3px rgba(10, 10, 10, 0.05)';
+              }}
+              onBlur={(e) => {
+                e.currentTarget.style.borderColor = '#e5e5e5';
+                e.currentTarget.style.boxShadow = 'none';
               }}
             />
           </div>
@@ -249,12 +262,20 @@ export default function AssetsPage() {
             value={filterType}
             onChange={(e) => setFilterType(e.target.value)}
             style={{
-              padding: '10px 12px',
+              padding: '12px 14px',
               fontSize: '14px',
               border: '1px solid #e5e5e5',
-              borderRadius: '8px',
+              borderRadius: '10px',
               backgroundColor: 'white',
               cursor: 'pointer',
+              fontWeight: '500',
+              transition: 'all 0.2s ease',
+            }}
+            onFocus={(e) => {
+              e.currentTarget.style.borderColor = '#0a0a0a';
+            }}
+            onBlur={(e) => {
+              e.currentTarget.style.borderColor = '#e5e5e5';
             }}
           >
             <option value="">All Types</option>
@@ -269,12 +290,20 @@ export default function AssetsPage() {
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
             style={{
-              padding: '10px 12px',
+              padding: '12px 14px',
               fontSize: '14px',
               border: '1px solid #e5e5e5',
-              borderRadius: '8px',
+              borderRadius: '10px',
               backgroundColor: 'white',
               cursor: 'pointer',
+              fontWeight: '500',
+              transition: 'all 0.2s ease',
+            }}
+            onFocus={(e) => {
+              e.currentTarget.style.borderColor = '#0a0a0a';
+            }}
+            onBlur={(e) => {
+              e.currentTarget.style.borderColor = '#e5e5e5';
             }}
           >
             <option value="">All Status</option>
@@ -353,7 +382,7 @@ export default function AssetsPage() {
             alignItems: 'center',
             justifyContent: 'center',
           }}>
-            <Image size={28} color="#737373" />
+            <ImageIcon size={28} color="#737373" />
           </div>
           <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#0a0a0a', marginBottom: '8px' }}>
             No assets yet
@@ -383,21 +412,32 @@ export default function AssetsPage() {
       ) : (
         <div className="assets-grid" style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-          gap: '20px',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+          gap: '24px',
         }}>
           {filteredAssets.map((asset) => (
             <div
               key={asset.id}
+              onClick={() => router.push(`/dashboard/assets/${asset.id}`)}
               style={{
                 backgroundColor: 'white',
                 border: '1px solid #e5e5e5',
                 borderRadius: '12px',
                 overflow: 'hidden',
-                transition: 'box-shadow 0.2s',
+                transition: 'all 0.2s ease',
+                cursor: 'pointer',
+                position: 'relative',
               }}
-              onMouseEnter={(e) => e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.08)'}
-              onMouseLeave={(e) => e.currentTarget.style.boxShadow = 'none'}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)';
+                e.currentTarget.style.borderColor = '#d4d4d4';
+                e.currentTarget.style.transform = 'translateY(-4px)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.boxShadow = 'none';
+                e.currentTarget.style.borderColor = '#e5e5e5';
+                e.currentTarget.style.transform = 'translateY(0)';
+              }}
             >
               {/* Thumbnail */}
               <div style={{
@@ -409,11 +449,14 @@ export default function AssetsPage() {
                 position: 'relative',
               }}>
                 {asset.thumbnailUrl ? (
-                  <img
-                    src={asset.thumbnailUrl}
-                    alt={asset.title}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  />
+                  <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+                    <Image
+                      src={asset.thumbnailUrl}
+                      alt={asset.title || 'Asset thumbnail'}
+                      fill
+                      style={{ objectFit: 'cover' }}
+                    />
+                  </div>
                 ) : (
                   <FileTypeIcon type={asset.assetType} size={48} />
                 )}
@@ -448,20 +491,51 @@ export default function AssetsPage() {
                   
                   {/* Dropdown Menu */}
                   {activeMenu === asset.id && (
-                    <div style={{
-                      position: 'absolute',
-                      top: '100%',
-                      right: '0',
-                      marginTop: '4px',
-                      backgroundColor: 'white',
-                      border: '1px solid #e5e5e5',
-                      borderRadius: '8px',
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                      minWidth: '160px',
-                      zIndex: 10,
-                    }}>
+                    <div 
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        position: 'absolute',
+                        top: '100%',
+                        right: '0',
+                        marginTop: '4px',
+                        backgroundColor: 'white',
+                        border: '1px solid #e5e5e5',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                        minWidth: '160px',
+                        zIndex: 100,
+                      }}>
                       <Link href={`/dashboard/assets/${asset.id}`}>
-                        <button style={{
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveMenu(null);
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '10px 14px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            fontSize: '13px',
+                            color: '#0a0a0a',
+                            backgroundColor: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                          }}
+                        >
+                          <Eye size={14} /> View Details
+                        </button>
+                      </Link>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveMenu(null);
+                          // TODO: Implement Sentinel scan
+                          toast.info('Sentinel scan feature coming soon');
+                        }}
+                        style={{
                           width: '100%',
                           padding: '10px 14px',
                           display: 'flex',
@@ -473,29 +547,17 @@ export default function AssetsPage() {
                           border: 'none',
                           cursor: 'pointer',
                           textAlign: 'left',
-                        }}>
-                          <Eye size={14} /> View Details
-                        </button>
-                      </Link>
-                      <button style={{
-                        width: '100%',
-                        padding: '10px 14px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        fontSize: '13px',
-                        color: '#0a0a0a',
-                        backgroundColor: 'transparent',
-                        border: 'none',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                      }}>
+                        }}
+                      >
                         <Shield size={14} /> Scan with Sentinel
                       </button>
                       {/* Show Retry Registration for DRAFT assets */}
                       {asset.status === 'DRAFT' && (
                         <button 
-                          onClick={() => handleRetryRegistration(asset)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRetryRegistration(asset);
+                          }}
                           style={{
                             width: '100%',
                             padding: '10px 14px',
@@ -516,26 +578,37 @@ export default function AssetsPage() {
                       
                       {/* Only show Create License for registered assets */}
                       {asset.status === 'REGISTERED' && (
-                        <button style={{
-                          width: '100%',
-                          padding: '10px 14px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '10px',
-                          fontSize: '13px',
-                          color: '#0a0a0a',
-                          backgroundColor: 'transparent',
-                          border: 'none',
-                          cursor: 'pointer',
-                          textAlign: 'left',
-                        }}>
-                          <Share2 size={14} /> Create License
-                        </button>
+                        <Link href={`/dashboard/licenses/create?assetId=${asset.id}`}>
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveMenu(null);
+                            }}
+                            style={{
+                              width: '100%',
+                              padding: '10px 14px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '10px',
+                              fontSize: '13px',
+                              color: '#0a0a0a',
+                              backgroundColor: 'transparent',
+                              border: 'none',
+                              cursor: 'pointer',
+                              textAlign: 'left',
+                            }}
+                          >
+                            <Share2 size={14} /> Create License
+                          </button>
+                        </Link>
                       )}
                       
                       <div style={{ height: '1px', backgroundColor: '#e5e5e5', margin: '4px 0' }} />
                       <button 
-                        onClick={() => handleDelete(asset.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(asset.id);
+                        }}
                         style={{
                           width: '100%',
                           padding: '10px 14px',
@@ -558,15 +631,16 @@ export default function AssetsPage() {
               </div>
 
               {/* Content */}
-              <div style={{ padding: '16px' }}>
+              <div style={{ padding: '20px' }}>
                 <h3 style={{
-                  fontSize: '14px',
+                  fontSize: '15px',
                   fontWeight: '600',
                   color: '#0a0a0a',
-                  marginBottom: '6px',
+                  marginBottom: '8px',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
+                  lineHeight: '1.4',
                 }}>
                   {asset.title}
                 </h3>
@@ -574,7 +648,8 @@ export default function AssetsPage() {
                 <p style={{
                   fontSize: '12px',
                   color: '#737373',
-                  marginBottom: '12px',
+                  marginBottom: '16px',
+                  lineHeight: '1.5',
                 }}>
                   {asset.assetType} · {formatFileSize(asset.fileSize)} · {formatDate(asset.createdAt)}
                 </p>
@@ -582,8 +657,8 @@ export default function AssetsPage() {
                 {/* Quick Stats */}
                 <div style={{
                   display: 'flex',
-                  gap: '12px',
-                  paddingTop: '12px',
+                  gap: '16px',
+                  paddingTop: '16px',
                   borderTop: '1px solid #f5f5f5',
                 }}>
                   <div style={{ fontSize: '12px', color: '#525252' }}>
@@ -607,7 +682,7 @@ export default function AssetsPage() {
       {/* Click outside to close menu */}
       {activeMenu && (
         <div
-          style={{ position: 'fixed', inset: 0, zIndex: 5 }}
+          style={{ position: 'fixed', inset: 0, zIndex: 50 }}
           onClick={() => setActiveMenu(null)}
         />
       )}
